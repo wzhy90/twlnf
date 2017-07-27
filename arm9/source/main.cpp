@@ -225,11 +225,17 @@ int main() {
 
 	consoleDemoInit();
 
+	iprintf("DS(i) firmware tool %s\n",VERSION);
+
 	if (!fatInitDefault()) {
-		printf("FAT init failed!\n");
+		iprintf("FAT init failed!\n");
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A) break;
+		}
 	} else {
 
-		iprintf("DS(i) firmware tool %s\n",VERSION);
 
 		firmware_buffer = (u8 *)memalign(32,MAX_SIZE);
 
