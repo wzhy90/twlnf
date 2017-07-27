@@ -254,7 +254,7 @@ int main() {
 
 		iprintf("\n%dK flash, jedec %X\n", fwSize/1024,readJEDEC());
 
-		iprintf("NAND size %d sectors\n",nand_GetSize());
+		if (isDSiMode()) iprintf("NAND size %d sectors\n",nand_GetSize());
 
 		wifiOffset = userSettingsOffset - 1024;
 		wifiSize = 1024;
