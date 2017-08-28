@@ -3,18 +3,37 @@
 @---------------------------------------------------------------------------------
 @ http://problemkaputt.de/gbatek.htm#dsmemorycontrolbios
 @---------------------------------------------------------------------------------
-@ 05ECh  ldrb r3,[r3,12h]      ;requires incoming r3=src-12h
-@ 05EEh  pop  r2,r4,r6,r7,r15  ;requires dummy values & THUMB retadr on stack
+@ 0x000005EC :  ldrb r3,[r3,12h]      ;requires incoming r3=src-12h
+@ 0x000005EE :  pop  r2,r4,r6,r7,r15  ;requires dummy values & THUMB retadr on stack
 @---------------------------------------------------------------------------------
 @ after dumping found a better instruction sequence
+@ Unfortunately this one only works on DSi in DS mode.
 @---------------------------------------------------------------------------------
-@ 0x1664 : ldr r1, [r1] ; str r1, [r0] ; bx lr
+@ 0x00001664 : ldr r1, [r1] ; str r1, [r0] ; bx lr
+@---------------------------------------------------------------------------------
+@ We need code in the BIOS below 0x00001204 to dump protected area on DS/DS Lite
 @---------------------------------------------------------------------------------
 	.arch	armv4t
 	.cpu	arm7tdmi
 
-
 	.text
+
+	.arm
+
+@---------------------------------------------------------------------------------
+call_5ec:
+@---------------------------------------------------------------------------------
+	adr 	r2, thumb_ret + 1
+	push	{r2}
+	push	{r2, r4, r6, r7}
+	ldr 	r2, =0x5ed
+	bx	r2
+
+	.thumb
+
+thumb_ret:
+	bx	lr
+
 	.global readBios
 @---------------------------------------------------------------------------------
 	.arm
@@ -24,17 +43,16 @@
 readBios:
 @---------------------------------------------------------------------------------
 	push	{lr}
-	mov	r2, #0
-	adr	lr, ret
+	mov	r1, #0
 	mov	r11, r11
 readLoop:
-	mov	r1, r2
-	ldr	r3, =0x1665
-	bx	r3
-ret:
-	add	r0, r0, #4
-	add	r2, r2, #4
-	cmp	r2, #0x4000
+	mov	r3, r1
+	sub	r3, #18
+	bl	call_5ec
+	strb	r3, [r0]
+	add	r0, r0, #1
+	add	r1, r1, #1
+	cmp	r1, #0x4000
 	bne	readLoop
 
 	pop	{lr}
