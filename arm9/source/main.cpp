@@ -11,6 +11,9 @@
 
 int menuTop = 8, statusTop = 15;
 
+PrintConsole topScreen;
+PrintConsole bottomScreen;
+
 //---------------------------------------------------------------------------------
 int saveToFile(const char *filename, u8 *buffer, size_t size) {
 //---------------------------------------------------------------------------------
@@ -223,7 +226,16 @@ int main() {
 //---------------------------------------------------------------------------------
 	defaultExceptionHandler();
 
-	consoleDemoInit();
+	videoSetMode(MODE_0_2D);
+	videoSetModeSub(MODE_0_2D);
+
+	vramSetBankA(VRAM_A_MAIN_BG);
+	vramSetBankC(VRAM_C_SUB_BG);
+
+	consoleInit(&topScreen, 3,BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
+	consoleInit(&bottomScreen, 3,BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+
+	consoleSelect(&topScreen);
 
 	iprintf("DS(i) firmware tool %s\n",VERSION);
 
@@ -237,11 +249,12 @@ int main() {
 	} else {
 
 
+		consoleSelect(&bottomScreen);
 		firmware_buffer = (u8 *)memalign(32,MAX_SIZE);
 
 		readFirmware(0, firmware_buffer, 512);
 
-		iprintf("\x1b[3;0HMAC ");
+		iprintf("MAC ");
 		for (int i=0; i<6; i++) {
 			printf("%02X", firmware_buffer[0x36+i]);
 			sprintf(&dirname[2+(2*i)],"%02X",firmware_buffer[0x36+i]);
@@ -260,8 +273,9 @@ int main() {
 
 		iprintf("\n%dK flash, jedec %X\n", fwSize/1024,readJEDEC());
 
-		if (isDSiMode()) iprintf("NAND size %d sectors\n",nand_GetSize());
-
+		if (isDSiMode()) {
+			iprintf("NAND size %d sectors\n",nand_GetSize());
+		}
 		wifiOffset = userSettingsOffset - 1024;
 		wifiSize = 1024;
 
@@ -269,6 +283,8 @@ int main() {
 			wifiOffset -= 1536;
 			wifiSize += 1536;
 		}
+
+		consoleSelect(&topScreen);
 
 		int count = sizeof(mainMenu) / sizeof(menuItem);
 
