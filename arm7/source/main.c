@@ -71,9 +71,11 @@ int readJEDEC() {
 
 }
 
+
 //---------------------------------------------------------------------------------
 int main() {
 //---------------------------------------------------------------------------------
+	u32 nand_cid[4];
 	readUserSettings();
 
 	irqInit();
@@ -112,6 +114,10 @@ int main() {
 					break;
 				case 3:
 					dumpDSiBios();
+					break;
+				case 4:
+					sdmmc_nand_cid(nand_cid);
+					fifoSendDatamsg(FIFO_USER_01, 16, (u8*)nand_cid);
 					break;
 			}
 

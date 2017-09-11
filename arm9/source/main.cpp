@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 #define MAX_SIZE	(1*1024*1024)
 
@@ -13,6 +14,8 @@ int menuTop = 8, statusTop = 15;
 
 PrintConsole topScreen;
 PrintConsole bottomScreen;
+
+u8 nandcid[16];
 
 //---------------------------------------------------------------------------------
 int saveToFile(const char *filename, u8 *buffer, size_t size) {
@@ -274,8 +277,28 @@ int main() {
 		iprintf("\n%dK flash, jedec %X\n", fwSize/1024,readJEDEC());
 
 		if (isDSiMode()) {
-			iprintf("NAND size %d sectors\n",nand_GetSize());
+
+			size_t nandSize = nand_GetSize();
+
+			iprintf("NAND size %d sectors\n",nandSize);
+
+			iprintf("NAND CID:\n");
+			if (0 != nandSize) {
+				fifoSendValue32(FIFO_USER_01, 4);
+				while(fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
+				fifoGetDatamsg(FIFO_USER_01,16,(u8*)nandcid);
+				for(int i=0;i<16;i++) {
+					iprintf("%02" PRIx8, nandcid[i]);
+				}
+			} else {
+				u8 *ramcid = (u8*)0x02FFD7BC;
+				for(int i=0;i<16;i++) {
+					iprintf("%02" PRIx8, ramcid[i]);
+				}
+			}
 		}
+
+		iprintf("\n");
 		wifiOffset = userSettingsOffset - 1024;
 		wifiSize = 1024;
 
