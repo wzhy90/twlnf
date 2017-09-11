@@ -105,6 +105,8 @@ int main() {
 
 			int command = fifoGetValue32(FIFO_USER_01);
 
+			u64 consoleid;
+
 			switch(command) {
 				case 1:
 					fifoSendValue32(FIFO_USER_01,readJEDEC());
@@ -118,6 +120,10 @@ int main() {
 				case 4:
 					sdmmc_nand_cid(nand_cid);
 					fifoSendDatamsg(FIFO_USER_01, 16, (u8*)nand_cid);
+					break;
+				case 5:
+					consoleid = REG_CONSOLEID;
+					fifoSendDatamsg(FIFO_USER_01, 8, (u8*)&consoleid);
 					break;
 			}
 

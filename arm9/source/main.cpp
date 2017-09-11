@@ -16,6 +16,7 @@ PrintConsole topScreen;
 PrintConsole bottomScreen;
 
 u8 nandcid[16];
+u8 consoleid[8];
 
 //---------------------------------------------------------------------------------
 int saveToFile(const char *filename, u8 *buffer, size_t size) {
@@ -295,6 +296,13 @@ int main() {
 				for(int i=0;i<16;i++) {
 					iprintf("%02" PRIx8, ramcid[i]);
 				}
+			}
+			iprintf("Console ID: ");
+			fifoSendValue32(FIFO_USER_01, 5);
+			while(fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
+			fifoGetDatamsg(FIFO_USER_01,8,consoleid);
+			for(int i=0;i<8;i++) {
+				iprintf("%02" PRIx8, consoleid[i]);
 			}
 		}
 
