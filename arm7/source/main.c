@@ -103,9 +103,18 @@ int main() {
 
 			int command = fifoGetValue32(FIFO_USER_01);
 
-			if (command == 1) fifoSendValue32(FIFO_USER_01,readJEDEC());
-			if (command == 2) dumpDSBios();
-			if (command == 3) dumpDSiBios();
+			switch(command) {
+				case 1:
+					fifoSendValue32(FIFO_USER_01,readJEDEC());
+					break;
+				case 2:
+					dumpDSBios();
+					break;
+				case 3:
+					dumpDSiBios();
+					break;
+			}
+
 		}
 
 		if ( 0 == (REG_KEYINPUT & (KEY_SELECT | KEY_START | KEY_L | KEY_R))) {
