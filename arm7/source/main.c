@@ -49,10 +49,10 @@ void dumpDSiBios() {
 void dumpBIOS() {
 //---------------------------------------------------------------------------------
 	u8 *dumped_bios = getDumpAddress();
-	if (REG_SCFG_A7ROM & 0x02) {
-		readBios(dumped_bios);
-	} else {
+	if (isDSiMode() && !(REG_SCFG_A7ROM & 0x02)) {
 		readDSiBios(dumped_bios);
+	} else {
+		readBios(dumped_bios);
 	}
 	fifoSendValue32(FIFO_USER_01,0);
 }
