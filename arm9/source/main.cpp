@@ -25,7 +25,12 @@ int saveToFile(const char *filename, u8 *buffer, size_t size) {
 	if (NULL==f) return -1;
 	size_t written = fwrite(buffer, 1, size, f);
 	fclose(f);
-	if (written != size) return -2;
+	if (written != size) {
+		iprintf("Error saving %s\n", filename);
+		return -2;
+	} else {
+		iprintf("saved %s.\n", filename);
+	}
 	return 0;
 }
 
@@ -72,55 +77,83 @@ void backupFirmware() {
 
 	readFirmware(0, firmware_buffer, fwSize);
 
-	if (saveToFile("firmware.bin", firmware_buffer, fwSize) < 0) {
-		iprintf("Error saving firmware!\n");
-	} else {
-		iprintf("Firmware saved as\n\n%s/firmware.bin", dirname );
-	}
+	saveToFile("firmware.bin", firmware_buffer, fwSize);
+
+}
+
+const u8 arm7bios[32] = {
+	0x06, 0x00, 0x00, 0xEA, 0x20, 0x0B, 0x00, 0xEA,
+	0x73, 0x0B, 0x00, 0xEA, 0x1E, 0x0B, 0x00, 0xEA,
+	0x1D, 0x0B, 0x00, 0xEA, 0x1C, 0x0B, 0x00, 0xEA,
+	0x69, 0x0B, 0x00, 0xEA, 0x1A, 0x0B, 0x00, 0xEA
+};
+
+const u8 arm7ibios[32] = {
+	0x06, 0x00, 0x00, 0xEA, 0x06, 0x00, 0x00, 0xEA,
+	0x1F, 0x00, 0x00, 0xEA,	0x04, 0x00, 0x00, 0xEA,
+	0x03, 0x00, 0x00, 0xEA, 0xFE, 0xFF, 0xFF, 0xEA,
+	0x13, 0x00, 0x00, 0xEA, 0x00, 0x00, 0x00, 0xEA
+};
+
+
+//---------------------------------------------------------------------------------
+void flipBIOS() {
+//---------------------------------------------------------------------------------
+	fifoSendValue32(FIFO_USER_01, 2);
+	fifoWaitValue32(FIFO_USER_01); fifoGetValue32(FIFO_USER_01);
+}
+
+//---------------------------------------------------------------------------------
+void dumpBIOS(void *buffer) {
+//---------------------------------------------------------------------------------
+	fifoSendValue32(FIFO_USER_01, 3);
+	fifoSendValue32(FIFO_USER_01, (u32)buffer);
+	fifoWaitValue32(FIFO_USER_01); fifoGetValue32(FIFO_USER_01);
 }
 
 //---------------------------------------------------------------------------------
 void backupBIOS() {
 //---------------------------------------------------------------------------------
-	int dumpcmd = 0;
 
 	clearStatus();
 
 	const char *arm7file, *arm9file;
+	const u8 *vectors;
+
 	size_t arm7size, arm9size;
 
+
 	if (isDSiMode()) {
+
+		int dsbios = REG_SCFG_ROM & 0x02;
+		flipBIOS();
+
+		if ((REG_SCFG_ROM & 0x02)!=dsbios) {
+			dumpBIOS(firmware_buffer);
+			memcpy(firmware_buffer,arm7bios,sizeof(arm7bios));
+			saveToFile("bios7.bin", firmware_buffer, 16 * 1024 );
+			saveToFile("bios9.bin", (u8*)0xffff0000, 32 * 1024 );
+			flipBIOS();
+
+		}
+
 		arm7file = "bios7i.bin";
 		arm7size = 64 * 1024;
 		arm9file = "bios9i.bin";
 		arm9size = 64 * 1024;
-		dumpcmd = 3;
+		vectors = arm7ibios;
 	} else {
 		arm7file = "bios7.bin";
 		arm7size = 16 * 1024;
 		arm9file = "bios9.bin";
 		arm9size = 32 * 1024;
-		dumpcmd = 2;
+		vectors = arm7bios;
 	}
 
-	if (saveToFile(arm9file, (u8*)0xffff0000, arm9size ) < 0) {
-		iprintf("Error saving arm9 bios\n");
-		return;
-	}
-
-	fifoSendValue32(FIFO_USER_01, dumpcmd);
-	fifoSendValue32(FIFO_USER_01, (u32)firmware_buffer);
-
-	fifoWaitValue32(FIFO_USER_01);
-
-	fifoGetValue32(FIFO_USER_01);
-
-	if (saveToFile(arm7file, firmware_buffer, arm7size) < 0 ) {
-		iprintf("Error saving arm7 bios\n");
-		return;
-	}
-
-	iprintf("BIOS saved as\n\n%1$s/%2$s\n%1$s/%3$s", dirname, arm7file, arm9file );
+	dumpBIOS(firmware_buffer);
+	memcpy(firmware_buffer,vectors,32);
+	saveToFile(arm9file, (u8*)0xffff0000, arm9size );
+	saveToFile(arm7file, firmware_buffer, arm7size);
 
 }
 
@@ -337,6 +370,7 @@ int main() {
 				if ( keys & KEY_A ) mainMenu[selected].function();
 		}
 	}
+
 
 	return 0;
 }

@@ -46,10 +46,14 @@ void dumpDSiBios() {
 }
 
 //---------------------------------------------------------------------------------
-void dumpDSBios() {
+void dumpBIOS() {
 //---------------------------------------------------------------------------------
 	u8 *dumped_bios = getDumpAddress();
-	readBios(dumped_bios);
+	if (REG_SCFG_A7ROM & 0x02) {
+		readBios(dumped_bios);
+	} else {
+		readDSiBios(dumped_bios);
+	}
 	fifoSendValue32(FIFO_USER_01,0);
 }
 
@@ -71,11 +75,17 @@ int readJEDEC() {
 
 }
 
+//---------------------------------------------------------------------------------
+void flipBIOS() {
+//---------------------------------------------------------------------------------
+	REG_SCFG_A9ROM ^= 0x02;
+	REG_SCFG_A7ROM ^= 0x02;
+	fifoSendValue32(FIFO_USER_01,0);
+}
 
 //---------------------------------------------------------------------------------
 int main() {
 //---------------------------------------------------------------------------------
-	u32 nand_cid[4];
 	readUserSettings();
 
 	irqInit();
@@ -106,16 +116,17 @@ int main() {
 			int command = fifoGetValue32(FIFO_USER_01);
 
 			u64 consoleid;
+			u32 nand_cid[4];
 
 			switch(command) {
 				case 1:
 					fifoSendValue32(FIFO_USER_01,readJEDEC());
 					break;
 				case 2:
-					dumpDSBios();
+					flipBIOS();
 					break;
 				case 3:
-					dumpDSiBios();
+					dumpBIOS();
 					break;
 				case 4:
 					sdmmc_nand_cid(nand_cid);
