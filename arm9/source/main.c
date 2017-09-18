@@ -348,19 +348,21 @@ int main() {
 			printBytes(consoleid, 8);
 			iprintf("\n");
 
-			nand_ReadSectors(0, 1, firmware_buffer);
-			int is3DS = parse_ncsd(firmware_buffer, 0);
-			iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
+			if (nandSize != 0) {
+				nand_ReadSectors(0, 1, firmware_buffer);
+				int is3DS = parse_ncsd(firmware_buffer, 0);
+				iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
 
-			dsi_nand_crypt_init(consoleid, nandcid, is3DS);
+				dsi_nand_crypt_init(consoleid, nandcid, is3DS);
 
-			const u8 verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
-			dsi_nand_crypt(firmware_buffer + 0x1f0, firmware_buffer + 0x1f0, 0x1f);
-			iprintf("Console ID/CID verfiy: ");
-			if (memcmp(verify, firmware_buffer + 0x1f0, 16)) {
-				iprintf("failed\n");
-			} else {
-				iprintf("succeed\n");
+				const u8 verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
+				dsi_nand_crypt(firmware_buffer + 0x1f0, firmware_buffer + 0x1f0, 0x1f);
+				iprintf("Console ID/CID verfiy: ");
+				if (memcmp(verify, firmware_buffer + 0x1f0, 16)) {
+					iprintf("failed\n");
+				} else {
+					iprintf("succeed\n");
+				}
 			}
 		}
 
