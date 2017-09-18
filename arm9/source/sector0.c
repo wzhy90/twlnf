@@ -55,14 +55,14 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 	return 1;
 }
 
-static const mbr_partition_t ptable_DSi[MBR_PARTITIONS] = {
+const mbr_partition_t ptable_DSi[MBR_PARTITIONS] = {
 	{0, {3, 24, 4}, 6, {15, 224, 59}, 0x00000877, 0x00066f89},
 	{0, {2, 206, 60}, 6, {15, 224, 190}, 0x0006784d, 0x000105b3},
 	{0, {2, 222, 191}, 1, {15, 224, 191}, 0x00077e5d, 0x000001a3},
 	{0, {0, 0, 0}, 0, {0, 0, 0}, 0, 0}
 };
 
-static const mbr_partition_t ptable_3DS[MBR_PARTITIONS] = {
+const mbr_partition_t ptable_3DS[MBR_PARTITIONS] = {
 	{0, {4, 24, 0}, 6, {1, 160, 63}, 0x00000097, 0x00047da9},
 	{0, {4, 142, 64}, 6, {1, 160, 195}, 0x0004808d, 0x000105b3},
 	{0, {0, 0, 0}, 0, {0, 0, 0}, 0, 0},

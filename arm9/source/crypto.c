@@ -158,8 +158,9 @@ void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 	ctr_base[3] = digest[3];
 }
 
-// operates on 16 bytes/128 bits/u32[4] blocks, in/out must be aligned to 32 bits
-void dsi_nand_crypt(u8* out, const u8* in, u32 offset) {
+// crypt one AES block, in/out must be aligned to 32 bits
+// offset as block offset
+void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
 	u32 buf[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
 	add_128_32(buf, offset);
 	byte_reverse_16_ip((u8*)buf);
@@ -168,4 +169,10 @@ void dsi_nand_crypt(u8* out, const u8* in, u32 offset) {
 	aes_encrypt_128(rk, (u8*)buf, (u8*)buf);
 	byte_reverse_16_ip((u8*)buf);
 	xor_128((u32*)out, (u32*)in, buf);
+}
+
+void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
+	for (unsigned i = 0; i < count; ++i) {
+		dsi_nand_crypt_1(out + i * AES_BLOCK_SIZE, in + i * AES_BLOCK_SIZE, offset + i);
+	}
 }

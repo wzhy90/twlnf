@@ -47,7 +47,7 @@ const char *toMebi(size_t size) {
 extern swiSHA1context_t sha1ctx;
 
 //---------------------------------------------------------------------------------
-int saveToFile(const char *filename, u8 *buffer, size_t size, bool saveSHA1) {
+int saveToFile(const char *filename, u8 *buffer, size_t size, int saveSHA1) {
 //---------------------------------------------------------------------------------
 	FILE *f = fopen(filename, "wb");
 	if (NULL==f) return -1;
@@ -69,7 +69,7 @@ int saveToFile(const char *filename, u8 *buffer, size_t size, bool saveSHA1) {
 }
 
 //---------------------------------------------------------------------------------
-int loadFromFile(void **pbuf, size_t *psize, const char *filename, bool verifySHA1, int align) {
+int loadFromFile(void **pbuf, size_t *psize, const char *filename, int verifySHA1, int align) {
 //---------------------------------------------------------------------------------
 	FILE *f = fopen(filename, "rb");
 	if (NULL == f)return -1;
