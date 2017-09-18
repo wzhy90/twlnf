@@ -1,7 +1,9 @@
 
 #include <nds.h>
+#include <stdio.h>
 #include "aes.h"
 #include "crypto.h"
+#include "utils.h"
 
 // more info:
 //		https://github.com/Jimmy-Z/TWLbf/blob/master/dsi.c
@@ -21,14 +23,6 @@ static inline u32 u32be(const u8 *in){
 	out8[1] = in[2];
 	out8[2] = in[1];
 	out8[3] = in[0];
-	return out;
-}
-
-static inline u16 u16be(const u8 *in){
-	u16 out;
-	u8 *out8 = (u8*)&out;
-	out8[0] = in[1];
-	out8[1] = in[0];
 	return out;
 }
 
@@ -101,7 +95,7 @@ static inline void add_128_32(u32 *a, u32 b){
 // Answer to life, universe and everything.
 static inline void rol42_128(u32 *a){
 	// ROL 32
-	u32 t[4] = { a[1], a[2], a[3], a[0] };
+	u32 t[4] = { a[3], a[0], a[1], a[2] };
 	// ROL 10
 	a[0] = (t[0] << 10) | (t[3] >> 22);
 	a[1] = (t[1] << 10) | (t[0] >> 22);
@@ -110,27 +104,46 @@ static inline void rol42_128(u32 *a){
 }
 
 // eMMC Encryption for MBR/Partitions (AES-CTR, with console-specific key)
-static void dsi_make_key(u32 *key, u32 console_id_l, u32 console_id_h){
-	key[0] = console_id_l;
-	key[1] = console_id_l ^ 0x24ee6906;
-	key[2] = console_id_h ^ 0xe65b601d;
-	key[3] = console_id_h;
+static void dsi_make_key(u32 *key, u32 console_id_l, u32 console_id_h, int is3DS){
+	if (is3DS) {
+		key[0] = (console_id_l ^ 0xb358a6af) | 0x80000000;
+		key[1] = 0x544e494e;
+		key[2] = 0x4f444e45;
+		key[3] = console_id_h ^ 0x08c267b7;
+	} else {
+		key[0] = console_id_l;
+		key[1] = console_id_l ^ 0x24ee6906;
+		key[2] = console_id_h ^ 0xe65b601d;
+		key[3] = console_id_h;
+	}
+	// iprintf("AES KEY_X:\n");
+	// printBytes(key, 16);
 	// Key = ((Key_X XOR Key_Y) + FFFEFB4E295902582A680F5F1A4F3E79h) ROL 42
 	// equivalent to F_XY in twltool/f_xy.c
 	xor_128(key, key, DSi_KEY_Y);
+	// iprintf("AES KEY: XOR KEY_Y:\n");
+	// printBytes(key, 16);
 	add_128(key, DSi_KEY_MAGIC);
+	// iprintf("AES KEY: + MAGIC:\n");
+	// printBytes(key, 16);
 	rol42_128(key);
+	// iprintf("AES KEY: ROL 42:\n");
+	// printBytes(key, 16);
 	byte_reverse_16_ip((u8*)key);
 }
 
 static u32 rk[RK_LEN];
 static u32 ctr_base[4];
 
-void dsi_nand_crypt_init(const u32 *console_id, const u8 *emmc_cid) {
+void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 	aes_gen_tables();
 
 	u32 key[4];
-	dsi_make_key(key, console_id[0], console_id[1]);
+	u32 console_id_l = u32be(console_id + 4);
+	u32 console_id_h = u32be(console_id);
+	dsi_make_key(key, console_id_l, console_id_h, is3DS);
+	// iprintf("AES KEY:\n");
+	// printBytes(key, 16);
 	aes_set_key_enc_128(rk, (u8*)key);
 
 	u32 digest[5];
@@ -145,12 +158,14 @@ void dsi_nand_crypt_init(const u32 *console_id, const u8 *emmc_cid) {
 	ctr_base[3] = digest[3];
 }
 
-// 16 bytes/128 bits/u32[4]
-void dsi_nand_crypt(u32 *out, const u32* in, u32 offset) {
+// operates on 16 bytes/128 bits/u32[4] blocks, in/out must be aligned to 32 bits
+void dsi_nand_crypt(u8* out, const u8* in, u32 offset) {
 	u32 buf[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
 	add_128_32(buf, offset);
-	byte_reverse_16_ip(buf);
-	aes_encrypt_128(rk, buf, buf);
-	byte_reverse_16_ip(buf);
-	xor_128(out, in, buf);
+	byte_reverse_16_ip((u8*)buf);
+	// iprintf("AES CTR:\n");
+	// printBytes(buf, 16);
+	aes_encrypt_128(rk, (u8*)buf, (u8*)buf);
+	byte_reverse_16_ip((u8*)buf);
+	xor_128((u32*)out, (u32*)in, buf);
 }

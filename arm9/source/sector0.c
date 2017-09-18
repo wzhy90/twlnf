@@ -1,20 +1,27 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "utils.h"
 #include "sector0.h"
 
 // return 1 for valid NCSD header
-int parse_ncsd(const u8 sector0[SECTOR_SIZE]) {
+int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 	const ncsd_header_t * h = (ncsd_header_t *)sector0;
 	if (h->magic == 0x4453434e) {
-		printf("NCSD magic found\n");
+		if (verbose) {
+			iprintf("NCSD magic found\n");
+		}
 	} else {
-		printf("NCSD magic not found\n");
+		if (verbose) {
+			iprintf("NCSD magic not found\n");
+		}
 		return 0;
 	}
-	printf("size: %d sectors, %s MB\n", h->size, to_Mebi(h->size * SECTOR_SIZE));
-	printf("media ID: %s\n", hexdump(&h->media_id, 8, 0));
+	if (verbose) {
+		iprintf("size: %" PRIu32 " sectors, %s MB\n", h->size, toMebi(h->size * SECTOR_SIZE));
+		iprintf("media ID: %08" PRIx32 "%08" PRIx32 "\n", h->media_id_h, h->media_id_l);
+	}
 
 	for (unsigned i = 0; i < NCSD_PARTITIONS; ++i) {
 		unsigned fs_type = h->fs_types[i];
@@ -33,13 +40,17 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE]) {
 				s_fs_type = "AGB_FIRM save";
 				break;
 			default:
-				printf("invalid partition type %d\n", fs_type);
+				if (verbose) {
+					iprintf("invalid partition type %d\n", fs_type);
+				}
 				return 0;
 		}
-		// yes I use MB for "MiB", bite me
-		printf("partition %u, %s, crypt: %u, offset: 0x%08x, length: 0x%08x(%s MB)\n",
-			i, s_fs_type, h->crypt_types[i],
-			h->partitions[i].offset, h->partitions[i].length, to_Mebi(h->partitions[i].length * SECTOR_SIZE));
+		if (verbose) {
+			// yes I use MB for "MiB", bite me
+			iprintf("partition %u, %s, crypt: %" PRIu8 ", offset: 0x%08" PRIx32 ", length: 0x%08" PRIx32 "(%s MB)\n",
+				i, s_fs_type, h->crypt_types[i],
+				h->partitions[i].offset, h->partitions[i].length, toMebi(h->partitions[i].length * SECTOR_SIZE));
+		}
 	}
 	return 1;
 }
@@ -64,13 +75,13 @@ int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	const mbr_partition_t *ref_ptable; // reference partition table
 	int ret = 1;
 	if (m->boot_signature_0 != 0x55 || m->boot_signature_1 != 0xaa) {
-		printf("invalid boot signature(0x55, 0xaa)\n");
+		iprintf("invalid boot signature(0x55, 0xaa)\n");
 		ret = 0;
 	}
 	if (!is3DS) {
 		for (unsigned i = 0; i < sizeof(m->bootstrap); ++i) {
 			if (m->bootstrap[i]) {
-				printf("bootstrap on DSi should be all zero\n");
+				iprintf("bootstrap on DSi should be all zero\n");
 				ret = 0;
 				break;
 			}
@@ -81,7 +92,7 @@ int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	}
 	if (memcmp(ref_ptable, sector0 + MBR_BOOTSTRAP_SIZE,
 		sizeof(mbr_partition_t) * MBR_PARTITIONS)) {
-		printf("invalid partition table\n");
+		iprintf("invalid partition table\n");
 		ret = 0;
 	}
 	if (!verbose) {
@@ -91,34 +102,34 @@ int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 		const mbr_partition_t *rp = &ref_ptable[i]; // reference
 		const mbr_partition_t *p = &m->partitions[i];
 		if (p->status != rp->status) {
-			printf("invalid partition %d status: %02x, should be %02x\n",
+			iprintf("invalid partition %u status: %02" PRIx8 ", should be %02" PRIx8 "\n",
 				i, p->status, rp->status);
 		}
 		if (p->type != rp->type) {
-			printf("invalid partition %d type: %02x, should be %02x\n",
+			iprintf("invalid partition %u type: %02" PRIx8 ", should be %02" PRIx8 "\n",
 				i, p->type, rp->type);
 		}
 		if (memcmp(&p->chs_first, &rp->chs_first, sizeof(chs_t))) {
-			printf("invalid partition %d first C/H/S: %d/%d/%d, should be %d/%d/%d\n",
+			iprintf("invalid partition %u first C/H/S: %u/%u/%u, should be %u/%u/%u\n",
 				i, p->chs_first.cylinder, p->chs_first.head, p->chs_first.sector,
 				rp->chs_first.cylinder, rp->chs_first.head, rp->chs_first.sector);
 		}
 		if (memcmp(&p->chs_last, &rp->chs_last, sizeof(chs_t))) {
-			printf("invalid partition %d last C/H/S: %d/%d/%d, should be %d/%d/%d\n",
+			iprintf("invalid partition %u last C/H/S: %u/%u/%u, should be %u/%u/%u\n",
 				i, p->chs_last.cylinder, p->chs_last.head, p->chs_last.sector,
 				rp->chs_last.cylinder, rp->chs_last.head, rp->chs_last.sector);
 		}
 		if (p->offset != rp->offset) {
-			printf("invalid partition %d LBA offset: 0x%08x, should be 0x%08x\n",
+			iprintf("invalid partition %u LBA offset: 0x%08" PRIx32 ", should be 0x%08" PRIx32 "\n",
 				i, p->offset, rp->offset);
 		}
 		if (p->length != rp->length) {
-			printf("invalid partition %d LBA length: 0x%08x, should be 0x%08x\n",
+			iprintf("invalid partition %u LBA length: 0x%08" PRIx32 ", should be 0x%08" PRIx32 "\n",
 				i, p->length, rp->length);
 		}
-		printf("status: %02x, type: %02x, offset: 0x%08x, length: 0x%08x(%s MB)\n"
+		iprintf("status: %02x, type: %02" PRIx8 ", offset: 0x%08" PRIx32 ", length: 0x%08" PRIx32 "(%s MB)\n"
 			"\t C/H/S: %u/%u/%u - %u/%u/%u\n",
-			p->status, p->type, p->offset, p->length, to_Mebi(p->length * SECTOR_SIZE),
+			p->status, p->type, p->offset, p->length, toMebi(p->length * SECTOR_SIZE),
 			p->chs_first.cylinder, p->chs_first.head, p->chs_first.sector,
 			p->chs_last.cylinder, p->chs_last.head, p->chs_last.sector);
 	}

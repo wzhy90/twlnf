@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include "common.h"
 
 int hexToBytes(u8 *out, unsigned byte_len, const char *in);

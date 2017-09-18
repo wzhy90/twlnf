@@ -7,8 +7,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <stdbool.h>
 #include "utils.h"
 #include "crypto.h"
+#include "sector0.h"
 
 #define MAX_SIZE	(1*1024*1024)
 
@@ -242,7 +244,7 @@ struct menuItem mainMenu[] = {
 };
 
 //---------------------------------------------------------------------------------
-void showMenu(menuItem menu[], int count) {
+void showMenu(struct menuItem menu[], int count) {
 //---------------------------------------------------------------------------------
 	int i;
 	for (i=0; i<count; i++ ) {
@@ -315,49 +317,57 @@ int main() {
 
 			ssize_t nandSize = nand_GetSize();
 
-			if (nandSize * 512 % (1024 * 1024) == 0) {
-				iprintf("NAND: %d sectors, %d MB\n", nandSize, nandSize * 512 / 1024 / 1024);
-			} else {
-				iprintf("NAND: %d sectors, %.2f MB\n", nandSize, nandSize * (512.0 / 1024 / 1024));
-			}
+			iprintf("NAND: %d sectors, %s MB\n", nandSize, toMebi(nandSize * 512));	
 
+			iprintf("NAND CID (from %s):\n", nandSize ? "MMC CMD" : "RAM");
 			if (0 != nandSize) {
-				iprintf("NAND CID (from MMC CMD):\n");
 				fifoSendValue32(FIFO_USER_01, 4);
 				while(fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
 				fifoGetDatamsg(FIFO_USER_01,16,(u8*)nandcid);
 				printBytes(nandcid, 16);
 			} else {
-				iprintf("NAND CID (from RAM):\n");
 				u8 *ramcid = (u8*)0x02FFD7BC;
 				printBytes(ramcid, 16);
 			}
+
 			char *pConsoleIDFile = 0;
 			size_t ConsoleIDFileSize;
-			bool consoleidFromFile = false;
+			bool consoleIDFromFile = false;
 			if (loadFromFile((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console id.txt", false, 0) == 0){
 				if (ConsoleIDFileSize >= 16 && hexToBytes(consoleid, 8, pConsoleIDFile) == 0) {
-					consoleidFromFile = true;
-					iprintf("Console ID (from file): ");
+					consoleIDFromFile = true;
 				}
 				free(pConsoleIDFile);
 			}
-			if (!consoleidFromFile) {
-				iprintf("Console ID (from RAM): ");
+			if (!consoleIDFromFile) {
 				fifoSendValue32(FIFO_USER_01, 5);
 				while(fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
 				fifoGetDatamsg(FIFO_USER_01,8,consoleid);
 			}
+			iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
 			printBytes(consoleid, 8);
+			iprintf("\n");
 
-			// TODO: parse sector 0
+			nand_ReadSectors(0, 1, firmware_buffer);
+			int is3DS = parse_ncsd(firmware_buffer, 0);
+			iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
+
+			dsi_nand_crypt_init(consoleid, nandcid, is3DS);
+
+			const u8 verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
+			dsi_nand_crypt(firmware_buffer + 0x1f0, firmware_buffer + 0x1f0, 0x1f);
+			iprintf("Console ID/CID verfiy: ");
+			if (memcmp(verify, firmware_buffer + 0x1f0, 16)) {
+				iprintf("failed\n");
+			} else {
+				iprintf("succeed\n");
+			}
 		}
 
-		iprintf("\n");
 
 		consoleSelect(&topScreen);
 
-		int count = sizeof(mainMenu) / sizeof(menuItem);
+		int count = sizeof(mainMenu) / sizeof(struct menuItem);
 
 		showMenu(mainMenu, count);
 
