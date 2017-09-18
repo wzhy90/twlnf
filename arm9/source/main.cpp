@@ -346,16 +346,16 @@ int main() {
 
 		fwSize = userSettingsOffset + 512;
 
-		iprintf("\nNAND: %dK flash, jedec %X\n", fwSize/1024,readJEDEC());
+		iprintf("\n%dK flash, jedec %X\n", fwSize/1024,readJEDEC());
 
 		if (isDSiMode()) {
 
 			ssize_t nandSize = nand_GetSize();
 
 			if (nandSize * 512 % (1024 * 1024) == 0) {
-				iprintf("  %d sectors, %d MB\n", nandSize, nandSize * 512 / 1024 / 1024);
+				iprintf("NAND %d sectors, %d MB\n", nandSize, nandSize * 512 / 1024 / 1024);
 			} else {
-				iprintf("  %d sectors, %.2f MB\n", nandSize, nandSize * (512.0 / 1024 / 1024));
+				iprintf("NAND %d sectors, %.2f MB\n", nandSize, nandSize * (512.0 / 1024 / 1024));
 			}
 
 			if (0 != nandSize) {
