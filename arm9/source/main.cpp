@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include "utils.h"
+#include "crypto.h"
 
 #define MAX_SIZE	(1*1024*1024)
 
@@ -19,53 +21,6 @@ u8 nandcid[16];
 u8 consoleid[8];
 
 swiSHA1context_t sha1ctx;
-
-int saveSHA1File(const char *filename);
-
-//---------------------------------------------------------------------------------
-int saveToFile(const char *filename, u8 *buffer, size_t size, bool saveSHA1) {
-//---------------------------------------------------------------------------------
-	FILE *f = fopen(filename, "wb");
-	if (NULL==f) return -1;
-	size_t written = fwrite(buffer, 1, size, f);
-	fclose(f);
-	if (written != size) {
-		iprintf("Error saving %s\n", filename);
-		return -2;
-	} else {
-		iprintf("saved %s.\n", filename);
-	}
-	if (saveSHA1) {
-		sha1ctx.sha_block = 0;
-		swiSHA1Init(&sha1ctx);
-		swiSHA1Update(&sha1ctx, buffer, size);
-		saveSHA1File(filename);
-	}
-	return 0;
-}
-
-//---------------------------------------------------------------------------------
-int saveSHA1File(const char *filename) {
-//---------------------------------------------------------------------------------
-	size_t len_fn = strlen(filename);
-	char *sha1_fn = (char *)malloc(len_fn + 6);
-	siprintf(sha1_fn, "%s.sha1", filename);
-	// 20 bytes each use 2 chars, space, asterisk, filename, new line
-	size_t len_buf = 2 * 20 + 1 + 1 + len_fn + 1;
-	char *sha1_buf = (char *)malloc(len_buf + 1); // extra for \0
-	char *p = sha1_buf;
-	char *digest = (char *)malloc(20);
-	swiSHA1Final(digest, &sha1ctx);
-	for (int i = 0; i < 20; ++i) {
-		p += siprintf(p, "%02X", digest[i]);
-	}
-	free(digest);
-	siprintf(p, " *%s\n", filename);
-	int ret = saveToFile(sha1_fn, (u8*)sha1_buf, len_buf, false);
-	free(sha1_fn);
-	free(sha1_buf);
-	return ret;
-}
 
 //---------------------------------------------------------------------------------
 int readJEDEC() {
@@ -348,41 +303,6 @@ int main() {
 
 		iprintf("\n%dK flash, jedec %X\n", fwSize/1024,readJEDEC());
 
-		if (isDSiMode()) {
-
-			ssize_t nandSize = nand_GetSize();
-
-			if (nandSize * 512 % (1024 * 1024) == 0) {
-				iprintf("NAND %d sectors, %d MB\n", nandSize, nandSize * 512 / 1024 / 1024);
-			} else {
-				iprintf("NAND %d sectors, %.2f MB\n", nandSize, nandSize * (512.0 / 1024 / 1024));
-			}
-
-			if (0 != nandSize) {
-				iprintf("  CID (from MMC CMD):\n");
-				fifoSendValue32(FIFO_USER_01, 4);
-				while(fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
-				fifoGetDatamsg(FIFO_USER_01,16,(u8*)nandcid);
-				for(int i=0;i<16;i++) {
-					iprintf("%02" PRIx8, nandcid[i]);
-				}
-			} else {
-				iprintf("  CID (from RAM):\n");
-				u8 *ramcid = (u8*)0x02FFD7BC;
-				for(int i=0;i<16;i++) {
-					iprintf("%02" PRIx8, ramcid[i]);
-				}
-			}
-			iprintf("Console ID: ");
-			fifoSendValue32(FIFO_USER_01, 5);
-			while(fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
-			fifoGetDatamsg(FIFO_USER_01,8,consoleid);
-			for(int i=0;i<8;i++) {
-				iprintf("%02" PRIx8, consoleid[i]);
-			}
-		}
-
-		iprintf("\n");
 		wifiOffset = userSettingsOffset - 1024;
 		wifiSize = 1024;
 
@@ -390,6 +310,50 @@ int main() {
 			wifiOffset -= 1536;
 			wifiSize += 1536;
 		}
+
+		if (isDSiMode()) {
+
+			ssize_t nandSize = nand_GetSize();
+
+			if (nandSize * 512 % (1024 * 1024) == 0) {
+				iprintf("NAND: %d sectors, %d MB\n", nandSize, nandSize * 512 / 1024 / 1024);
+			} else {
+				iprintf("NAND: %d sectors, %.2f MB\n", nandSize, nandSize * (512.0 / 1024 / 1024));
+			}
+
+			if (0 != nandSize) {
+				iprintf("NAND CID (from MMC CMD):\n");
+				fifoSendValue32(FIFO_USER_01, 4);
+				while(fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
+				fifoGetDatamsg(FIFO_USER_01,16,(u8*)nandcid);
+				printBytes(nandcid, 16);
+			} else {
+				iprintf("NAND CID (from RAM):\n");
+				u8 *ramcid = (u8*)0x02FFD7BC;
+				printBytes(ramcid, 16);
+			}
+			char *pConsoleIDFile = 0;
+			size_t ConsoleIDFileSize;
+			bool consoleidFromFile = false;
+			if (loadFromFile((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console id.txt", false, 0) == 0){
+				if (ConsoleIDFileSize >= 16 && hexToBytes(consoleid, 8, pConsoleIDFile) == 0) {
+					consoleidFromFile = true;
+					iprintf("Console ID (from file): ");
+				}
+				free(pConsoleIDFile);
+			}
+			if (!consoleidFromFile) {
+				iprintf("Console ID (from RAM): ");
+				fifoSendValue32(FIFO_USER_01, 5);
+				while(fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1,IRQ_FIFO_NOT_EMPTY);
+				fifoGetDatamsg(FIFO_USER_01,8,consoleid);
+			}
+			printBytes(consoleid, 8);
+
+			// TODO: parse sector 0
+		}
+
+		iprintf("\n");
 
 		consoleSelect(&topScreen);
 
