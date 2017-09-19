@@ -57,8 +57,8 @@ size_t df(int verbose) {
 	statvfs(nand_root, &s);
 	size_t free = s.f_bsize * s.f_bfree;
 	if (verbose) {
-		printf("%s MB free, %s MB total\n",
-			toMebi(free), toMebi(s.f_bsize * s.f_blocks));
+		iprintf("%s", toMebi(free));
+		iprintf("/%s MB (free/total)\n", toMebi(s.f_bsize * s.f_blocks));
 	}
 	return free;
 }
@@ -180,10 +180,9 @@ int main() {
 	}
 
 	// finally mount NAND
-	// apparently fatMountSimple will call startup
-	// io_dsi_nand.startup();
 #if IMG_MODE
-	if (!fatMountSimple(nand_vol_name, &io_nand_img)) {
+	mbr_t *mbr = (mbr_t*)buffer;
+	if (!fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64)) {
 #else
 	if (!fatMountSimple(nand_vol_name, &io_dsi_nand)) {
 #endif

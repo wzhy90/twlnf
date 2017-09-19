@@ -7,7 +7,7 @@
 #include "crypto.h"
 
 #define SECTOR_SIZE 512
-#define CRYPT_BUF_LEN 128
+#define CRYPT_BUF_LEN 64
 
 static u8* crypt_buf = 0;
 

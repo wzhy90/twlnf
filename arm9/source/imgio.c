@@ -5,9 +5,10 @@
 #include <stdio.h>
 #include "aes.h"
 #include "crypto.h"
+#include "utils.h"
 
 #define SECTOR_SIZE 512
-#define CRYPT_BUF_LEN 128
+#define CRYPT_BUF_LEN 64
 
 extern const char nand_img_name[];
 
@@ -34,21 +35,34 @@ bool imgio_is_inserted() {
 	return true;
 }
 
+bool dumped = false;
+
 // len is guaranteed <= CRYPT_BUF_LEN
 static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 	if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
+		iprintf("IMGIO: seek fail\n");
 		return false;
 	}
 	if (fread(crypt_buf, SECTOR_SIZE, len, f) == len) {
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
+		if (start == 0x877
+			&& ((u8*)buffer)[0x36] == 0
+			&& ((u8*)buffer)[0x37] == 0
+			&& ((u8*)buffer)[0x38] == 0){
+			iprintf("IMGIO: SPECIAL FIX :P\n");
+			((u8*)buffer)[0x36] = 'F';
+			((u8*)buffer)[0x37] = 'A';
+			((u8*)buffer)[0x38] = 'T';
+		}
 		return true;
 	} else {
+		iprintf("IMGIO: read fail\n");
 		return false;
 	}
 }
 
 bool imgio_read_sectors(sec_t offset, sec_t len, void *buffer) {
-	iprintf("R: %u, %u\n", (unsigned)offset, (unsigned)len);
+	iprintf("R: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
 	while (len >= CRYPT_BUF_LEN) {
 		if (!read_sectors(offset, CRYPT_BUF_LEN, buffer)) {
 			return false;
