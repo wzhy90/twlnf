@@ -16,7 +16,7 @@
 #include "nandio.h"
 #include "imgio.h"
 
-#define IMG_MODE 1
+#define IMG_MODE 0
 
 #define BUF_SIZE	(1*1024*1024)
 
@@ -29,8 +29,6 @@ u8 nandcid[16];
 u8 consoleid[8];
 
 swiSHA1context_t sha1ctx;
-
-char dirname[15] = "FW";
 
 const u8 mbr_1f0_verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
 
@@ -90,6 +88,7 @@ int main() {
 
 	buffer = (u8 *)memalign(32, BUF_SIZE);
 
+#if !IMG_MODE
 	if (!isDSiMode()) {
 		iprintf("not running in DSi mode\n");
 		exit_with_prompt(-2);
@@ -102,6 +101,7 @@ int main() {
 	}
 
 	iprintf("NAND: %d sectors, %s MB\n", nandSize, toMebi(nandSize * 512));
+#endif
 
 	iprintf("NAND CID:\n");
 #if IMG_MODE
@@ -179,12 +179,14 @@ int main() {
 		iprintf("MBR OK\n");
 	}
 
+	mbr_t *mbr = (mbr_t*)buffer;
 	// finally mount NAND
 #if IMG_MODE
-	mbr_t *mbr = (mbr_t*)buffer;
+	imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
 	if (!fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64)) {
 #else
-	if (!fatMountSimple(nand_vol_name, &io_dsi_nand)) {
+	nandio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
+	if (!fatMount(nand_vol_name, &io_dsi_nand, mbr->partitions[0].offset, 4, 64)) {
 #endif
 		iprintf("failed to mount NAND\n");
 		exit_with_prompt(-5);
@@ -192,11 +194,11 @@ int main() {
 		iprintf("NAND mounted\n");
 	}
 
-	/* // the volume label is all white space?
+	///* // the volume label is all white space?
 	char vol_label[32];
 	fatGetVolumeLabel(nand_vol_name, vol_label);
-	iprintf("Label: \"%s\"\n", vol_label);
-	*/
+	iprintf("\"%s\"\n", vol_label);
+	//*/
 	df(1);
 
 	DIR *d = opendir(nand_root);

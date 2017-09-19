@@ -7,10 +7,10 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
-export TARGET	:=	fwTool
+export TARGET	:=	twlnf
 export TOPDIR	:=	$(CURDIR)
 
-export VERSION	:=	1.5.0
+export VERSION	:=	0.0.2
 
 .PHONY: arm7/$(TARGET).elf arm9/$(TARGET).elf
 
@@ -21,7 +21,7 @@ all: $(TARGET).nds
 
 #---------------------------------------------------------------------------------
 $(TARGET).nds	:	arm7/$(TARGET).elf arm9/$(TARGET).elf
-	ndstool	-c $@ -b fwTool.bmp "Nintendo DS firmware tool;version ${VERSION}" -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf
+	ndstool	-c $@ -b fwTool.bmp "DSi NAND File ... thing ...;version ${VERSION}" -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf
 
 #---------------------------------------------------------------------------------
 arm7/$(TARGET).elf:

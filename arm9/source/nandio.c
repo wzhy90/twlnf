@@ -11,6 +11,12 @@
 
 static u8* crypt_buf = 0;
 
+static u32 fat_sig_fix_offset = 0;
+
+void nandio_set_fat_sig_fix(u32 offset) {
+	fat_sig_fix_offset = offset;
+}
+
 bool nandio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);
@@ -29,6 +35,16 @@ bool nandio_is_inserted() {
 static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 	if (nand_ReadSectors(start, len, crypt_buf)) {
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
+		if (fat_sig_fix_offset &&
+			start == fat_sig_fix_offset
+			&& ((u8*)buffer)[0x36] == 0
+			&& ((u8*)buffer)[0x37] == 0
+			&& ((u8*)buffer)[0x38] == 0)
+		{
+			((u8*)buffer)[0x36] = 'F';
+			((u8*)buffer)[0x37] = 'A';
+			((u8*)buffer)[0x38] = 'T';
+		}
 		return true;
 	} else {
 		return false;
@@ -36,7 +52,7 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 }
 
 bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
-	iprintf("R: %u, %u\n", (unsigned)offset, (unsigned)len);
+	iprintf("R: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
 	while (len >= CRYPT_BUF_LEN) {
 		if (!read_sectors(offset, CRYPT_BUF_LEN, buffer)) {
 			return false;

@@ -15,6 +15,12 @@ extern const char nand_img_name[];
 static u8* crypt_buf = 0;
 FILE *f = 0;
 
+static u32 fat_sig_fix_offset = 0;
+
+void imgio_set_fat_sig_fix(u32 offset) {
+	fat_sig_fix_offset = offset;
+}
+
 bool imgio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);
@@ -45,11 +51,12 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 	}
 	if (fread(crypt_buf, SECTOR_SIZE, len, f) == len) {
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
-		if (start == 0x877
+		if (fat_sig_fix_offset &&
+			start == fat_sig_fix_offset
 			&& ((u8*)buffer)[0x36] == 0
 			&& ((u8*)buffer)[0x37] == 0
-			&& ((u8*)buffer)[0x38] == 0){
-			iprintf("IMGIO: SPECIAL FIX :P\n");
+			&& ((u8*)buffer)[0x38] == 0)
+		{
 			((u8*)buffer)[0x36] = 'F';
 			((u8*)buffer)[0x37] = 'A';
 			((u8*)buffer)[0x38] = 'T';
