@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <inttypes.h>
-#include <dirent.h>
 #include <sys/statvfs.h>
 #include "aes.h"
 #include "utils.h"
@@ -15,10 +14,11 @@
 #include "sector0.h"
 #include "nandio.h"
 #include "imgio.h"
+#include "walk.h"
 
-#define IMG_MODE 0
+#define IMG_MODE 1
 
-#define BUF_SIZE	(1*1024*1024)
+#define BUF_SIZE (1*1024*1024)
 
 u8 *buffer;
 
@@ -49,6 +49,17 @@ void exit_with_prompt(int exit_code) {
 	exit(exit_code);
 }
 
+unsigned wait_keys(unsigned keys) {
+	while (1) {
+		swiWaitForVBlank();
+		scanKeys();
+		unsigned kd = keysDown();
+		if (kd & keys) {
+			return kd;
+		}
+	}
+}
+
 size_t df(int verbose) {
 	// it's amazing libfat even got this to work
 	struct statvfs s;
@@ -61,9 +72,12 @@ size_t df(int verbose) {
 	return free;
 }
 
-//---------------------------------------------------------------------------------
+void walkie(const char *name, void *p_param) {
+	iprintf("%s\n", name);
+	fiprintf((FILE*)p_param, "%s\n", name);
+}
+
 int main() {
-	//---------------------------------------------------------------------------------
 	defaultExceptionHandler();
 
 	videoSetMode(MODE_0_2D);
@@ -197,22 +211,18 @@ int main() {
 	///* // the volume label is all white space?
 	char vol_label[32];
 	fatGetVolumeLabel(nand_vol_name, vol_label);
-	iprintf("\"%s\"\n", vol_label);
+	iprintf("label: \"%s\"\n", vol_label);
 	//*/
 	df(1);
 
-	DIR *d = opendir(nand_root);
-	if (d == 0) {
-		iprintf("failed to open dir\n");
-		exit_with_prompt(-6);
+	iprintf("walk the NAND? Yes(A)/No(B)");
+	unsigned keys = wait_keys(KEY_A | KEY_B);
+	if(keys & KEY_A){
+		FILE * f = fopen("nand.lst", "w");
+		iprintf("walk returned %d\n", walk(nand_root, walkie, f));
+		fclose(f);
 	}
-	consoleSelect(&topScreen);
-	struct dirent *e;
-	while ((e = readdir(d)) != 0) {
-		iprintf("%s\n", e->d_name);
-	}
-	closedir(d);
-	consoleSelect(&bottomScreen);
 	
+	fatUnmount(nand_vol_name);
 	exit_with_prompt(0);
 }
