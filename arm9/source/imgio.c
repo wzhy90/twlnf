@@ -9,25 +9,37 @@
 #define SECTOR_SIZE 512
 #define CRYPT_BUF_LEN 128
 
-static u8* crypt_buf = 0;
+extern const char nand_img_name[];
 
-bool nandio_startup() {
+static u8* crypt_buf = 0;
+FILE *f = 0;
+
+bool imgio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);
 		if (crypt_buf == 0) {
-			iprintf("nandio: failed to alloc buffer\n");
+			iprintf("imgio: failed to alloc buffer\n");
 		}
 	}
-	return crypt_buf != 0;
+	if (f == 0) {
+		f = fopen(nand_img_name, "r");
+		if (f == 0) {
+			iprintf("imgio: failed to open image\n");
+		}
+	}
+	return crypt_buf != 0 && f != 0;
 }
 
-bool nandio_is_inserted() {
+bool imgio_is_inserted() {
 	return true;
 }
 
 // len is guaranteed <= CRYPT_BUF_LEN
 static bool read_sectors(sec_t start, sec_t len, void *buffer) {
-	if (nand_ReadSectors(start, len, crypt_buf)) {
+	if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
+		return false;
+	}
+	if (fread(crypt_buf, SECTOR_SIZE, len, f) == len) {
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 		return true;
 	} else {
@@ -35,7 +47,7 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 	}
 }
 
-bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
+bool imgio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 	iprintf("R: %u, %u\n", (unsigned)offset, (unsigned)len);
 	while (len >= CRYPT_BUF_LEN) {
 		if (!read_sectors(offset, CRYPT_BUF_LEN, buffer)) {
@@ -52,27 +64,29 @@ bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 	}
 }
 
-bool nandio_write_sectors(sec_t offset, sec_t len, const void *buffer) {
+bool imgio_write_sectors(sec_t offset, sec_t len, const void *buffer) {
 	return false;
 }
 
-bool nandio_clear_status() {
+bool imgio_clear_status() {
 	return true;
 }
 
-bool nandio_shutdown() {
+bool imgio_shutdown() {
 	free(crypt_buf);
 	crypt_buf = 0;
+	fclose(f);
+	f = 0;
 	return true;
 }
 
-const DISC_INTERFACE io_dsi_nand = {
-	('N' << 24) | ('A' << 16) | ('N' << 8) | 'D',
+const DISC_INTERFACE io_nand_img = {
+	('I' << 24) | ('M' << 16) | ('G' << 8) | 'C',
 	FEATURE_MEDIUM_CANREAD,
-	nandio_startup,
-	nandio_is_inserted,
-	nandio_read_sectors,
-	nandio_write_sectors,
-	nandio_clear_status,
-	nandio_shutdown
+	imgio_startup,
+	imgio_is_inserted,
+	imgio_read_sectors,
+	imgio_write_sectors,
+	imgio_clear_status,
+	imgio_shutdown
 };

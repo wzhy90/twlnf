@@ -3,4 +3,4 @@
 #include <nds.h>
 #include <nds/disc_io.h>
 
-extern const DISC_INTERFACE io_dsi_nand;
+extern const DISC_INTERFACE io_nand_img;

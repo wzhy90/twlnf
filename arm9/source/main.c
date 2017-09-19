@@ -8,11 +8,15 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <dirent.h>
+#include <sys/statvfs.h>
 #include "aes.h"
 #include "utils.h"
 #include "crypto.h"
 #include "sector0.h"
 #include "nandio.h"
+#include "imgio.h"
+
+#define IMG_MODE 1
 
 #define BUF_SIZE	(1*1024*1024)
 
@@ -30,7 +34,12 @@ char dirname[15] = "FW";
 
 const u8 mbr_1f0_verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
 
+#if IMG_MODE
+const char nand_img_name[] = "nand.bin";
+#endif
+
 const char nand_vol_name[] = "NAND";
+const char nand_root[] = "NAND:/";
 
 void exit_with_prompt(int exit_code) {
 	iprintf("press A to exit...");
@@ -40,6 +49,18 @@ void exit_with_prompt(int exit_code) {
 		if (keysDown() & KEY_A) break;
 	}
 	exit(exit_code);
+}
+
+size_t df(int verbose) {
+	// it's amazing libfat even got this to work
+	struct statvfs s;
+	statvfs(nand_root, &s);
+	size_t free = s.f_bsize * s.f_bfree;
+	if (verbose) {
+		printf("%s MB free, %s MB total\n",
+			toMebi(free), toMebi(s.f_bsize * s.f_blocks));
+	}
+	return free;
 }
 
 //---------------------------------------------------------------------------------
@@ -69,18 +90,6 @@ int main() {
 
 	buffer = (u8 *)memalign(32, BUF_SIZE);
 
-	readFirmware(0, buffer, 512);
-
-	iprintf("MAC: ");
-	for (int i = 0; i < 6; i++) {
-		iprintf("%02X", buffer[0x36 + i]);
-		sprintf(&dirname[2 + (2 * i)], "%02X", buffer[0x36 + i]);
-		iprintf(i < 5 ? ":" : "\n");
-	}
-	dirname[14] = 0;
-	mkdir(dirname, 0777);
-	chdir(dirname);
-
 	if (!isDSiMode()) {
 		iprintf("not running in DSi mode\n");
 		exit_with_prompt(-2);
@@ -95,9 +104,25 @@ int main() {
 	iprintf("NAND: %d sectors, %s MB\n", nandSize, toMebi(nandSize * 512));
 
 	iprintf("NAND CID:\n");
+#if IMG_MODE
+	char *pCIDFile = 0;
+	size_t CIDFileSize;
+	bool CIDFromFile = false;
+	if (loadFromFile((void**)&pCIDFile, &CIDFileSize, "cid.txt", false, 0) == 0) {
+		if (CIDFileSize >= 32 && hexToBytes(nandcid, 16, pCIDFile) == 0) {
+			CIDFromFile = true;
+		}
+		free(pCIDFile);
+	}
+	if (!CIDFromFile) {
+		iprintf("cid.txt missing/invalid\n");
+		exit_with_prompt(0);
+	}
+#else
 	fifoSendValue32(FIFO_USER_01, 4);
 	while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
 	fifoGetDatamsg(FIFO_USER_01, 16, (u8*)nandcid);
+#endif
 	printBytes(nandcid, 16);
 
 	char *pConsoleIDFile = 0;
@@ -110,16 +135,35 @@ int main() {
 		free(pConsoleIDFile);
 	}
 	if (!consoleIDFromFile) {
+#if IMG_MODE
+		iprintf("console_id.txt missing/invalid\n");
+		exit_with_prompt(0);
+#else
 		fifoSendValue32(FIFO_USER_01, 5);
 		while (fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
 		fifoGetDatamsg(FIFO_USER_01, 8, consoleid);
+#endif
 	}
 	iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
 	printBytes(consoleid, 8);
 	iprintf("\n");
 
 	// check NCSD header
+#if IMG_MODE
+	FILE *f = fopen(nand_img_name, "r");
+	if (f == 0) {
+		iprintf("can't open %s\n", nand_img_name);
+		exit_with_prompt(0);
+	}
+	size_t read = fread(buffer, 1, SECTOR_SIZE, f);
+	if (read != SECTOR_SIZE) {
+		iprintf("read = %u, expecting %u\n", (unsigned)read, SECTOR_SIZE);
+		exit_with_prompt(0);
+	}
+	fclose(f);
+#else
 	nand_ReadSectors(0, 1, buffer);
+#endif
 	int is3DS = parse_ncsd(buffer, 0);
 	iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
 
@@ -136,18 +180,27 @@ int main() {
 	}
 
 	// finally mount NAND
+	// apparently fatMountSimple will call startup
+	// io_dsi_nand.startup();
+#if IMG_MODE
+	if (!fatMountSimple(nand_vol_name, &io_nand_img)) {
+#else
 	if (!fatMountSimple(nand_vol_name, &io_dsi_nand)) {
+#endif
 		iprintf("failed to mount NAND\n");
 		exit_with_prompt(-5);
 	} else {
 		iprintf("NAND mounted\n");
 	}
 
+	/* // the volume label is all white space?
 	char vol_label[32];
 	fatGetVolumeLabel(nand_vol_name, vol_label);
 	iprintf("Label: \"%s\"\n", vol_label);
+	*/
+	df(1);
 
-	DIR *d = opendir("NAND:/");
+	DIR *d = opendir(nand_root);
 	if (d == 0) {
 		iprintf("failed to open dir\n");
 		exit_with_prompt(-6);
