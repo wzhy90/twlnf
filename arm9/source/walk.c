@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
+#include "walk.h"
 
 #define STACK_DEPTH 0x400
 
@@ -100,4 +101,35 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 	}
 	s_free();
 	return 0;
+}
+
+void listdir(const char *dir, void(*callback)(const char*, size_t, void*), void *p_cb_param) {
+	size_t len_dir = strlen(dir);
+	DIR * d = opendir(dir);
+	if (d == 0) {
+		return;
+	}
+	struct dirent * de;
+	while ((de = readdir(d)) != 0) {
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
+			continue;
+		}
+		char *fullname = (char*)malloc(len_dir + 1 + strlen(de->d_name) + 1);
+		if (fullname == 0) {
+			return;
+		}
+		siprintf(fullname, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
+		struct stat s;
+		if (stat(fullname, &s) != 0) {
+			free(fullname);
+			continue;
+		}
+		free(fullname);
+		if (s.st_mode & S_IFREG) {
+			callback(de->d_name, s.st_size, p_cb_param);
+		} else if (s.st_mode & S_IFDIR) {
+			callback(de->d_name, INVALID_SIZE, p_cb_param);
+		}
+	}
+	closedir(d);
 }

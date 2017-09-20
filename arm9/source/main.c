@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/statvfs.h>
+#include <dirent.h>
 #include "aes.h"
 #include "utils.h"
 #include "crypto.h"
@@ -56,26 +57,48 @@ const char nand_root[] = "NAND:/";
 #define Cyn "\x1b[46m"
 #define Wht "\x1b[47m"
 
-
 typedef struct {
 	const char *name;
 	size_t size;
 }file_list_item_t;
 
-#define FILE_LIST_LEN 0x100
+#define FILE_LIST_MAX 0x100
 
-char title[CONSOLE_WIDTH];
-file_list_item_t file_list[FILE_LIST_LEN];
+const char pwd[] = ".";
+file_list_item_t file_list[FILE_LIST_MAX];
 unsigned file_list_len;
 unsigned win_pos;
 unsigned cur_pos;
 
-#define WINDOW_HEIGHT (CONSOLE_HEIGHT - 1)
+#define VIEW_HEIGHT (CONSOLE_HEIGHT - 1)
+
+void file_list_add(const char *name, size_t size, void *_) {
+	if (size == INVALID_SIZE) {
+		// filter out directory
+		return;
+	}
+	unsigned len_name = strlen(name);
+	if (len_name < 5) {
+		// shortest valid name would be like "1.sha"
+		return;
+	}
+	if (strcmp(".sha1", name + len_name - 5)
+		&& strcmp(".sha", name + len_name - 4)
+		&& strcmp(".lst", name + len_name - 3))
+	{
+		return;
+	}
+	char *name_copy = malloc(len_name + 1);
+	strcpy(name_copy, name);
+	file_list[file_list_len].name = name_copy;
+	file_list[file_list_len].size = size;
+	++file_list_len;
+}
 
 void draw_file_list() {
 	// TODO: right align position
-	iprintf(Cls Red "%s %u/%u\n", title, win_pos + cur_pos + 1, file_list_len);
-	unsigned len = file_list_len < WINDOW_HEIGHT ? file_list_len : WINDOW_HEIGHT;
+	iprintf(Cls Red "%s %u/%u\n", pwd, win_pos + cur_pos + 1, file_list_len);
+	unsigned len = file_list_len < VIEW_HEIGHT ? file_list_len : VIEW_HEIGHT;
 	for (unsigned i = 0; i < len; ++i) {
 		iprintf(i == cur_pos ? Grn : Wht);
 		file_list_item_t *item = &file_list[win_pos + i];
@@ -86,6 +109,7 @@ void draw_file_list() {
 }
 
 void menu_move(int move) {
+	unsigned last_pos = file_list_len < VIEW_HEIGHT ? file_list_len - 1 : VIEW_HEIGHT - 1;
 	switch (move) {
 	case -1:
 		if (cur_pos > 0) {
@@ -95,7 +119,7 @@ void menu_move(int move) {
 		}
 		break;
 	case 1:
-		if (cur_pos < WINDOW_HEIGHT - 1) {
+		if (cur_pos < last_pos) {
 			++cur_pos;
 		} else {
 		}
@@ -107,52 +131,11 @@ void menu_move(int move) {
 		}
 		break;
 	case 2:
-		if (cur_pos < WINDOW_HEIGHT - 1) {
-			cur_pos = WINDOW_HEIGHT - 1;
+		if (cur_pos < last_pos) {
+			cur_pos = last_pos;
 		} else {
 		}
 	}
-}
-
-void menu() {
-	// fake test data
-	file_list_len = 100;
-	for (unsigned i = 0; i < file_list_len; ++i) {
-		char *name = malloc(0x10);
-		siprintf(name, "test_file_%d.txt", i);
-		file_list[i].name = name;
-		file_list[i].size = i;
-	}
-	iprintf("press B to quit");
-	consoleSelect(&topScreen);
-	win_pos = 0;
-	cur_pos = 0;
-	siprintf(title, "%s", ".");
-	draw_file_list();
-	int needs_redraw = 0;
-	while (1) {
-		swiWaitForVBlank();
-		scanKeys();
-		int keys = keysDownRepeat();
-		if (keys == KEY_B) {
-			break;
-		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
-			if (keys & KEY_UP) {
-				menu_move(-1);
-			} else if (keys & KEY_DOWN) {
-				menu_move(1);
-			} else if (keys & KEY_LEFT) {
-				menu_move(-2);
-			} else if (keys & KEY_RIGHT) {
-				menu_move(2);
-			}
-			needs_redraw = 1;
-		}
-		if (needs_redraw) {
-			draw_file_list();
-		}
-	}
-	consoleSelect(&bottomScreen);
 }
 
 void exit_with_prompt(int exit_code) {
@@ -229,6 +212,43 @@ void walk_cb_dump(const char *name, void *_) {
 
 }
 
+
+void menu() {
+	// list
+	file_list_len = 0;
+	listdir(pwd, file_list_add, 0);
+	// init menu
+	iprintf("press B to quit");
+	consoleSelect(&topScreen);
+	win_pos = 0;
+	cur_pos = 0;
+	draw_file_list();
+	int needs_redraw = 0;
+	while (1) {
+		swiWaitForVBlank();
+		scanKeys();
+		int keys = keysDownRepeat();
+		if (keys == KEY_B) {
+			break;
+		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
+			if (keys & KEY_UP) {
+				menu_move(-1);
+			} else if (keys & KEY_DOWN) {
+				menu_move(1);
+			} else if (keys & KEY_LEFT) {
+				menu_move(-2);
+			} else if (keys & KEY_RIGHT) {
+				menu_move(2);
+			}
+			needs_redraw = 1;
+		}
+		if (needs_redraw) {
+			draw_file_list();
+		}
+	}
+	consoleSelect(&bottomScreen);
+}
+
 int main() {
 	defaultExceptionHandler();
 
@@ -242,9 +262,6 @@ int main() {
 	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
 
 	consoleSelect(&bottomScreen);
-
-	menu();
-	return 0;
 
 	iprintf("FAT init...");
 
