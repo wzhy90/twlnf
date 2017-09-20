@@ -19,7 +19,7 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 		return 0;
 	}
 	if (verbose) {
-		iprintf("size: %" PRIu32 " sectors, %s MB\n", h->size, toMebi(h->size * SECTOR_SIZE));
+		iprintf("size: %" PRIu32 " sectors, %s MB\n", h->size, to_mebi(h->size * SECTOR_SIZE));
 		iprintf("media ID: %08" PRIx32 "%08" PRIx32 "\n", h->media_id_h, h->media_id_l);
 	}
 
@@ -49,7 +49,7 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 			// yes I use MB for "MiB", bite me
 			iprintf("partition %u, %s, crypt: %" PRIu8 ", offset: 0x%08" PRIx32 ", length: 0x%08" PRIx32 "(%s MB)\n",
 				i, s_fs_type, h->crypt_types[i],
-				h->partitions[i].offset, h->partitions[i].length, toMebi(h->partitions[i].length * SECTOR_SIZE));
+				h->partitions[i].offset, h->partitions[i].length, to_mebi(h->partitions[i].length * SECTOR_SIZE));
 		}
 	}
 	return 1;
@@ -129,7 +129,7 @@ int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 		}
 		iprintf("status: %02x, type: %02" PRIx8 ", offset: 0x%08" PRIx32 ", length: 0x%08" PRIx32 "(%s MB)\n"
 			"\t C/H/S: %u/%u/%u - %u/%u/%u\n",
-			p->status, p->type, p->offset, p->length, toMebi(p->length * SECTOR_SIZE),
+			p->status, p->type, p->offset, p->length, to_mebi(p->length * SECTOR_SIZE),
 			p->chs_first.cylinder, p->chs_first.head, p->chs_first.sector,
 			p->chs_last.cylinder, p->chs_last.head, p->chs_last.sector);
 	}

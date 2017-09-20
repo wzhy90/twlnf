@@ -1,16 +1,17 @@
 
 #pragma once
 
+#include <nds.h>
 #include "common.h"
 
-int hexToBytes(u8 *out, unsigned byte_len, const char *in);
+int hex2bytes(u8 *out, unsigned byte_len, const char *in);
 
-const char * toMebi(size_t size);
+const char * to_mebi(size_t size);
 
-int saveToFile(const char *filename, u8 *buffer, size_t size, int saveSHA1);
+int save_file(const char *filename, u8 *buffer, size_t size, int save_sha1);
 
-int loadFromFile(void **pbuf, size_t *psize, const char *filename, int verifySHA1, int align);
+int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align);
 
-int saveSHA1File(const char *filename);
+int save_sha1_file(const char *filename, swiSHA1context_t *ctx);
 
-void printBytes(const void *buf, size_t len);
+void print_bytes(const void *buf, size_t len);

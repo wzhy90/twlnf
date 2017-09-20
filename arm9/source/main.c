@@ -22,11 +22,7 @@
 
 #define SHA1_LEN 20
 
-#define BUF_SIZE (1 * 1024 * 1024)
-
-#define RESERVE (5 * 1024 * 1024)
-
-u8 *buffer;
+#define NAND_RESERVE (5 * 1024 * 1024)
 
 PrintConsole topScreen;
 PrintConsole bottomScreen;
@@ -34,13 +30,7 @@ PrintConsole bottomScreen;
 u8 nandcid[16];
 u8 consoleid[8];
 
-swiSHA1context_t sha1ctx;
-
-const u8 mbr_1f0_verify[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa };
-
-#if NAND_IMG_MODE
 const char nand_img_name[] = "nand.bin";
-#endif
 
 const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
@@ -68,12 +58,13 @@ typedef struct {
 #define FILE_LIST_MAX 0x100
 
 const char pwd[] = ".";
+const char footer[] = "(A)select (B)quit";
 file_list_item_t file_list[FILE_LIST_MAX];
 unsigned file_list_len;
 unsigned view_pos;
 unsigned cur_pos;
 
-#define VIEW_HEIGHT (CONSOLE_HEIGHT - 1)
+#define VIEW_HEIGHT (CONSOLE_HEIGHT - 2)
 
 void file_list_add(const char *name, size_t size, void *_) {
 	if (size == INVALID_SIZE) {
@@ -82,13 +73,10 @@ void file_list_add(const char *name, size_t size, void *_) {
 	}
 	unsigned len_name = strlen(name);
 	if (len_name < 5) {
-		// shortest valid name would be like "1.sha"
+		// shortest valid name would be like "1.nfs"
 		return;
 	}
-	if (strcmp(".sha1", name + len_name - 5)
-		&& strcmp(".sha", name + len_name - 4)
-		&& strcmp(".lst", name + len_name - 4))
-	{
+	if (strcmp(".nfs", name + len_name - 4)){
 		return;
 	}
 	char *name_copy = malloc(len_name + 1);
@@ -101,14 +89,17 @@ void file_list_add(const char *name, size_t size, void *_) {
 void draw_file_list() {
 	// TODO: right align position
 	iprintf(Cls Red "%s %u/%u\n", pwd, view_pos + cur_pos + 1, file_list_len);
-	unsigned len = file_list_len < VIEW_HEIGHT ? file_list_len : VIEW_HEIGHT;
-	for (unsigned i = 0; i < len; ++i) {
-		iprintf(i == cur_pos ? Grn : Wht);
-		file_list_item_t *item = &file_list[view_pos + i];
-		// TODO: right align size
-		iprintf("%s %u\n", item->name, item->size);
+	for (unsigned i = 0; i < VIEW_HEIGHT; ++i) {
+		if (view_pos + i < file_list_len) {
+			iprintf(i == cur_pos ? Grn : Wht);
+			file_list_item_t *item = &file_list[view_pos + i];
+			// TODO: right align size
+			iprintf("%s %u\n", item->name, item->size);
+		} else {
+			iprintf("\n");
+		}
 	}
-	iprintf(Rst);
+	iprintf(Red "%s\n" Rst, footer);
 }
 
 void menu_move(int move) {
@@ -168,35 +159,10 @@ size_t df(int verbose) {
 	statvfs(nand_root, &s);
 	size_t free = s.f_bsize * s.f_bfree;
 	if (verbose) {
-		iprintf("%s", toMebi(free));
-		iprintf("/%s MB (free/total)\n", toMebi(s.f_bsize * s.f_blocks));
+		iprintf("%s", to_mebi(free));
+		iprintf("/%s MB (free/total)\n", to_mebi(s.f_bsize * s.f_blocks));
 	}
 	return free;
-}
-
-int sha1_file(void *digest, const char *name, size_t *p_size) {
-	FILE *f = fopen(name, "r");
-	if (f == 0) {
-		return -1;
-	}
-	sha1ctx.sha_block = 0;
-	swiSHA1Init(&sha1ctx);
-	while (1) {
-		size_t read = fread(buffer, 1, BUF_SIZE, f);
-		if (read == 0) {
-			break;
-		}
-		if (p_size) {
-			*p_size += read;
-		}
-		swiSHA1Update(&sha1ctx, buffer, read);
-		if (read < BUF_SIZE) {
-			break;
-		}
-	}
-	fclose(f);
-	swiSHA1Final(digest, &sha1ctx);
-	return 0;
 }
 
 void walk_cb_lst(const char *name, void *p_param) {
@@ -205,9 +171,13 @@ void walk_cb_lst(const char *name, void *p_param) {
 }
 
 void walk_cb_sha1(const char *name, void *p_param) {
-	iprintf("%s\n", name);
+	iprintf("%s", name);
 	unsigned char digest[SHA1_LEN];
-	sha1_file(digest, name, 0);
+	int sha1_ret = sha1_file(digest, name);
+	iprintf(" %d\n", sha1_ret);
+	if (sha1_ret < 0) {
+		return;
+	}
 	for (unsigned i = 0; i < SHA1_LEN; ++i) {
 		fiprintf((FILE*)p_param, "%02X", digest[i]);
 	}
@@ -217,48 +187,18 @@ void walk_cb_sha1(const char *name, void *p_param) {
 void walk_cb_dump(const char *name, void *_) {
 }
 
-typedef struct {
-	unsigned check;
-	unsigned wrong;
-	unsigned missing;
-	size_t size;
-}sumfile_cb_verify_stats_t;
-
-void sumfile_cb_verify(const char *name, const unsigned char *hash, void *p_cb_param) {
-	iprintf("%s", name);
-	unsigned char digest[SHA1_LEN];
-	sumfile_cb_verify_stats_t *p_stats = (sumfile_cb_verify_stats_t *)p_cb_param;
-	if (sha1_file(digest, name, &p_stats->size) != 0) {
-		iprintf(" missing\n");
-		p_stats->missing += 1;
-	} else if (memcmp(digest, hash, SHA1_LEN)) {
-		iprintf(" wrong\n");
-		p_stats->wrong += 1;
-	} else {
-		iprintf(" OK\n");
-		p_stats->check += 1;
-	}
-}
-
 void menu_action(const char *name) {
-	sumfile_cb_verify_stats_t stats;
-	stats.check = 0;
-	stats.wrong = 0;
-	stats.missing = 0;
-	stats.size = 0;
-	int sp_ret = sumfile_parser(name, SHA1_LEN, sumfile_cb_verify, &stats);
-	iprintf("%u bytes checked\n", stats.size);
-	iprintf("%u/%u OK/All\n", stats.check, stats.check + stats.wrong + stats.missing);
-	if (stats.wrong)iprintf("%u wrong\n", stats.wrong);
-	if (stats.missing)iprintf("%u missing\n", stats.missing);
-	if (sp_ret > 0)iprintf("%u lines dropped in sha1 file\n", sp_ret);
+	iprintf("%s\n", name);
+	scripting(name, 1);
 }
+
+// uint32 prev_keys = 0;
+
 void menu() {
 	// list
 	file_list_len = 0;
 	listdir(pwd, file_list_add, 0);
 	// init menu
-	iprintf("press B to quit");
 	consoleSelect(&topScreen);
 	view_pos = 0;
 	cur_pos = 0;
@@ -267,7 +207,16 @@ void menu() {
 	while (1) {
 		swiWaitForVBlank();
 		scanKeys();
-		int keys = keysDownRepeat();
+		uint32 keys = keysDownRepeat();
+		/*
+		if (keys != prev_keys) {
+			consoleSelect(&bottomScreen);
+			iprintf("%08lx\n", keys);
+			consoleSelect(&topScreen);
+			prev_keys = keys;
+		}
+		*/
+		consoleSelect(&bottomScreen);
 		if (keys & KEY_B) {
 			break;
 		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
@@ -282,15 +231,21 @@ void menu() {
 			}
 			needs_redraw = 1;
 		} else if (keys & KEY_A) {
-			consoleSelect(&bottomScreen);
 			menu_action(file_list[view_pos + cur_pos].name);
-			consoleSelect(&topScreen);
+		} else if ((keys & KEY_START) && (keys & KEY_L)) {
+			FILE * f = fopen("nand_files.lst", "w");
+			iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst, f));
+			fclose(f);
+		} else if ((keys & KEY_START) && (keys & KEY_R)) {
+			FILE * f = fopen("nand_files.sha1", "w");
+			iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
+			fclose(f);
 		}
 		if (needs_redraw) {
+			consoleSelect(&topScreen);
 			draw_file_list();
 		}
 	}
-	consoleSelect(&bottomScreen);
 }
 
 int main() {
@@ -316,7 +271,7 @@ int main() {
 		iprintf("\rFAT init succeed\n");
 	}
 
-	buffer = (u8 *)memalign(32, BUF_SIZE);
+	u8 *sector_buf = (u8*)memalign(32, SECTOR_SIZE);
 
 #if !NAND_IMG_MODE
 	if (!isDSiMode()) {
@@ -330,7 +285,7 @@ int main() {
 		exit_with_prompt(-3);
 	}
 
-	iprintf("NAND: %d sectors, %s MB\n", nandSize, toMebi(nandSize * 512));
+	iprintf("NAND: %d sectors, %s MB\n", nandSize, to_mebi(nandSize * 512));
 #endif
 
 	iprintf("NAND CID:\n");
@@ -338,8 +293,8 @@ int main() {
 	char *pCIDFile = 0;
 	size_t CIDFileSize;
 	bool CIDFromFile = false;
-	if (loadFromFile((void**)&pCIDFile, &CIDFileSize, "cid.txt", false, 0) == 0) {
-		if (CIDFileSize >= 32 && hexToBytes(nandcid, 16, pCIDFile) == 0) {
+	if (load_file((void**)&pCIDFile, &CIDFileSize, "cid.txt", false, 0) == 0) {
+		if (CIDFileSize >= 32 && hex2bytes(nandcid, 16, pCIDFile) == 0) {
 			CIDFromFile = true;
 		}
 		free(pCIDFile);
@@ -353,13 +308,13 @@ int main() {
 	while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
 	fifoGetDatamsg(FIFO_USER_01, 16, (u8*)nandcid);
 #endif
-	printBytes(nandcid, 16);
+	print_bytes(nandcid, 16);
 
 	char *pConsoleIDFile = 0;
 	size_t ConsoleIDFileSize;
 	bool consoleIDFromFile = false;
-	if (loadFromFile((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console_id.txt", false, 0) == 0) {
-		if (ConsoleIDFileSize >= 16 && hexToBytes(consoleid, 8, pConsoleIDFile) == 0) {
+	if (load_file((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console_id.txt", false, 0) == 0) {
+		if (ConsoleIDFileSize >= 16 && hex2bytes(consoleid, 8, pConsoleIDFile) == 0) {
 			consoleIDFromFile = true;
 		}
 		free(pConsoleIDFile);
@@ -375,7 +330,7 @@ int main() {
 #endif
 	}
 	iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
-	printBytes(consoleid, 8);
+	print_bytes(consoleid, 8);
 	iprintf("\n");
 
 	// check NCSD header
@@ -385,23 +340,23 @@ int main() {
 		iprintf("can't open %s\n", nand_img_name);
 		exit_with_prompt(0);
 	}
-	size_t read = fread(buffer, 1, SECTOR_SIZE, f);
+	size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
 	if (read != SECTOR_SIZE) {
 		iprintf("read = %u, expecting %u\n", (unsigned)read, SECTOR_SIZE);
 		exit_with_prompt(0);
 	}
 	fclose(f);
 #else
-	nand_ReadSectors(0, 1, buffer);
+	nand_ReadSectors(0, 1, sector_buf);
 #endif
-	int is3DS = parse_ncsd(buffer, 0);
+	int is3DS = parse_ncsd(sector_buf, 0);
 	iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
 
 	dsi_nand_crypt_init(consoleid, nandcid, is3DS);
 
 	// check MBR
-	dsi_nand_crypt(buffer, buffer, 0, SECTOR_SIZE / AES_BLOCK_SIZE);
-	int mbr_ok = parse_mbr(buffer, is3DS, 0);
+	dsi_nand_crypt(sector_buf, sector_buf, 0, SECTOR_SIZE / AES_BLOCK_SIZE);
+	int mbr_ok = parse_mbr(sector_buf, is3DS, 0);
 	if (mbr_ok != 1) {
 		iprintf("most likely Console ID is wrong\n");
 		exit_with_prompt(-4);
@@ -409,7 +364,7 @@ int main() {
 		iprintf("MBR OK\n");
 	}
 
-	mbr_t *mbr = (mbr_t*)buffer;
+	mbr_t *mbr = (mbr_t*)sector_buf;
 	// finally mount NAND
 #if NAND_IMG_MODE
 	imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
@@ -431,20 +386,11 @@ int main() {
 	//*/
 	df(1);
 
+	if (scripting_init() != 0) {
+		exit_with_prompt(-1);
+	}
+
 	menu();
 
-	iprintf("list(A)/sha1(X) the NAND? Cancel(B)");
-	unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X);
-	if(keys & KEY_A){
-		FILE * f = fopen("nand.lst", "w");
-		iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst, f));
-		fclose(f);
-	} else if (keys & KEY_X) {
-		FILE * f = fopen("nand_files.sha1", "w");
-		iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
-		fclose(f);
-	}
-	
 	fatUnmount(nand_vol_name);
-	exit_with_prompt(0);
 }

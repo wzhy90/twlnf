@@ -1,4 +1,9 @@
 #pragma once
 
-int sumfile_parser(const char *filename, unsigned hashlen,
-	void(*callback)(const char*, const unsigned char*, void*), void *p_cb_param);
+#define SHA1_LEN 20
+
+int sha1_file(void *digest, const char *name);
+
+int scripting_init();
+
+int scripting(const char *filename, int dry_run);

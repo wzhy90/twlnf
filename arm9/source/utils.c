@@ -16,7 +16,7 @@ static inline int htoi(char a){
 	}
 }
 
-int hexToBytes(u8 *out, unsigned byte_len, const char *in){
+int hex2bytes(u8 *out, unsigned byte_len, const char *in){
 	if (strlen(in) < byte_len << 1){
 		iprintf("%s: invalid input length, expecting %u, got %u.\n",
 			__FUNCTION__, (unsigned)byte_len << 1, (unsigned)strlen(in));
@@ -35,7 +35,8 @@ int hexToBytes(u8 *out, unsigned byte_len, const char *in){
 }
 
 static char str_buf[0x10];
-const char *toMebi(size_t size) {
+
+const char *to_mebi(size_t size) {
 	if (size % (1024 * 1024)) {
 		sprintf(str_buf, "%.2f", (float)(((double)size) / 1024 / 1024));
 	} else {
@@ -44,11 +45,7 @@ const char *toMebi(size_t size) {
 	return str_buf;
 }
 
-extern swiSHA1context_t sha1ctx;
-
-//---------------------------------------------------------------------------------
-int saveToFile(const char *filename, u8 *buffer, size_t size, int saveSHA1) {
-//---------------------------------------------------------------------------------
+int save_file(const char *filename, u8 *buffer, size_t size, int save_sha1) {
 	FILE *f = fopen(filename, "wb");
 	if (NULL==f) return -1;
 	size_t written = fwrite(buffer, 1, size, f);
@@ -59,18 +56,17 @@ int saveToFile(const char *filename, u8 *buffer, size_t size, int saveSHA1) {
 	} else {
 		iprintf("saved %s\n", filename);
 	}
-	if (saveSHA1) {
-		sha1ctx.sha_block = 0;
-		swiSHA1Init(&sha1ctx);
-		swiSHA1Update(&sha1ctx, buffer, size);
-		saveSHA1File(filename);
+	if (save_sha1) {
+		swiSHA1context_t ctx;
+		ctx.sha_block = 0;
+		swiSHA1Init(&ctx);
+		swiSHA1Update(&ctx, buffer, size);
+		save_sha1_file(filename, &ctx);
 	}
 	return 0;
 }
 
-//---------------------------------------------------------------------------------
-int loadFromFile(void **pbuf, size_t *psize, const char *filename, int verifySHA1, int align) {
-//---------------------------------------------------------------------------------
+int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align) {
 	FILE *f = fopen(filename, "rb");
 	if (NULL == f)return -1;
 	fseek(f, 0, SEEK_END);
@@ -96,7 +92,7 @@ int loadFromFile(void **pbuf, size_t *psize, const char *filename, int verifySHA
 		} else {
 			iprintf("loaded %s(%u)\n", filename, read);
 		}
-		if (verifySHA1) {
+		if (verify_sha1) {
 			//TODO:
 		}
 		fclose(f);
@@ -104,9 +100,7 @@ int loadFromFile(void **pbuf, size_t *psize, const char *filename, int verifySHA
 	}
 }
 
-//---------------------------------------------------------------------------------
-int saveSHA1File(const char *filename) {
-//---------------------------------------------------------------------------------
+int save_sha1_file(const char *filename, swiSHA1context_t *ctx) {
 	size_t len_fn = strlen(filename);
 	char *sha1_fn = (char *)malloc(len_fn + 6);
 	siprintf(sha1_fn, "%s.sha1", filename);
@@ -115,19 +109,19 @@ int saveSHA1File(const char *filename) {
 	char *sha1_buf = (char *)malloc(len_buf + 1); // extra for \0
 	char *p = sha1_buf;
 	char *digest = (char *)malloc(20);
-	swiSHA1Final(digest, &sha1ctx);
+	swiSHA1Final(digest, ctx);
 	for (int i = 0; i < 20; ++i) {
 		p += siprintf(p, "%02X", digest[i]);
 	}
 	free(digest);
 	siprintf(p, " *%s\n", filename);
-	int ret = saveToFile(sha1_fn, (u8*)sha1_buf, len_buf, false);
+	int ret = save_file(sha1_fn, (u8*)sha1_buf, len_buf, false);
 	free(sha1_fn);
 	free(sha1_buf);
 	return ret;
 }
 
-void printBytes(const void *buf, size_t len) {
+void print_bytes(const void *buf, size_t len) {
 	const unsigned char *p = (const unsigned char *)buf;
 	for(size_t i = 0; i < len; ++i) {
 		iprintf("%02" PRIx8, *p++);
