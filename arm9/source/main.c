@@ -16,8 +16,11 @@
 #include "nandio.h"
 #include "imgio.h"
 #include "walk.h"
+#include "scripting.h"
 
 #define NAND_IMG_MODE 1
+
+#define SHA1_LEN 20
 
 #define BUF_SIZE (1 * 1024 * 1024)
 
@@ -67,7 +70,7 @@ typedef struct {
 const char pwd[] = ".";
 file_list_item_t file_list[FILE_LIST_MAX];
 unsigned file_list_len;
-unsigned win_pos;
+unsigned view_pos;
 unsigned cur_pos;
 
 #define VIEW_HEIGHT (CONSOLE_HEIGHT - 1)
@@ -84,7 +87,7 @@ void file_list_add(const char *name, size_t size, void *_) {
 	}
 	if (strcmp(".sha1", name + len_name - 5)
 		&& strcmp(".sha", name + len_name - 4)
-		&& strcmp(".lst", name + len_name - 3))
+		&& strcmp(".lst", name + len_name - 4))
 	{
 		return;
 	}
@@ -97,11 +100,11 @@ void file_list_add(const char *name, size_t size, void *_) {
 
 void draw_file_list() {
 	// TODO: right align position
-	iprintf(Cls Red "%s %u/%u\n", pwd, win_pos + cur_pos + 1, file_list_len);
+	iprintf(Cls Red "%s %u/%u\n", pwd, view_pos + cur_pos + 1, file_list_len);
 	unsigned len = file_list_len < VIEW_HEIGHT ? file_list_len : VIEW_HEIGHT;
 	for (unsigned i = 0; i < len; ++i) {
 		iprintf(i == cur_pos ? Grn : Wht);
-		file_list_item_t *item = &file_list[win_pos + i];
+		file_list_item_t *item = &file_list[view_pos + i];
 		// TODO: right align size
 		iprintf("%s %u\n", item->name, item->size);
 	}
@@ -171,7 +174,7 @@ size_t df(int verbose) {
 	return free;
 }
 
-int sha1_file(void *digest, const char *name) {
+int sha1_file(void *digest, const char *name, size_t *p_size) {
 	FILE *f = fopen(name, "r");
 	if (f == 0) {
 		return -1;
@@ -182,6 +185,9 @@ int sha1_file(void *digest, const char *name) {
 		size_t read = fread(buffer, 1, BUF_SIZE, f);
 		if (read == 0) {
 			break;
+		}
+		if (p_size) {
+			*p_size += read;
 		}
 		swiSHA1Update(&sha1ctx, buffer, read);
 		if (read < BUF_SIZE) {
@@ -200,19 +206,53 @@ void walk_cb_lst(const char *name, void *p_param) {
 
 void walk_cb_sha1(const char *name, void *p_param) {
 	iprintf("%s\n", name);
-	unsigned char digest[20];
-	sha1_file(digest, name);
-	for (unsigned i = 0; i < 20; ++i) {
+	unsigned char digest[SHA1_LEN];
+	sha1_file(digest, name, 0);
+	for (unsigned i = 0; i < SHA1_LEN; ++i) {
 		fiprintf((FILE*)p_param, "%02X", digest[i]);
 	}
 	fiprintf((FILE*)p_param, " *%s\n", name);
 }
 
 void walk_cb_dump(const char *name, void *_) {
-
 }
 
+typedef struct {
+	unsigned check;
+	unsigned wrong;
+	unsigned missing;
+	size_t size;
+}sumfile_cb_verify_stats_t;
 
+void sumfile_cb_verify(const char *name, const unsigned char *hash, void *p_cb_param) {
+	iprintf("%s", name);
+	unsigned char digest[SHA1_LEN];
+	sumfile_cb_verify_stats_t *p_stats = (sumfile_cb_verify_stats_t *)p_cb_param;
+	if (sha1_file(digest, name, &p_stats->size) != 0) {
+		iprintf(" missing\n");
+		p_stats->missing += 1;
+	} else if (memcmp(digest, hash, SHA1_LEN)) {
+		iprintf(" wrong\n");
+		p_stats->wrong += 1;
+	} else {
+		iprintf(" OK\n");
+		p_stats->check += 1;
+	}
+}
+
+void menu_action(const char *name) {
+	sumfile_cb_verify_stats_t stats;
+	stats.check = 0;
+	stats.wrong = 0;
+	stats.missing = 0;
+	stats.size = 0;
+	int sp_ret = sumfile_parser(name, SHA1_LEN, sumfile_cb_verify, &stats);
+	iprintf("%u bytes checked\n", stats.size);
+	iprintf("%u/%u OK/All\n", stats.check, stats.check + stats.wrong + stats.missing);
+	if (stats.wrong)iprintf("%u wrong\n", stats.wrong);
+	if (stats.missing)iprintf("%u missing\n", stats.missing);
+	if (sp_ret > 0)iprintf("%u lines dropped in sha1 file\n", sp_ret);
+}
 void menu() {
 	// list
 	file_list_len = 0;
@@ -220,7 +260,7 @@ void menu() {
 	// init menu
 	iprintf("press B to quit");
 	consoleSelect(&topScreen);
-	win_pos = 0;
+	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();
 	int needs_redraw = 0;
@@ -228,7 +268,7 @@ void menu() {
 		swiWaitForVBlank();
 		scanKeys();
 		int keys = keysDownRepeat();
-		if (keys == KEY_B) {
+		if (keys & KEY_B) {
 			break;
 		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
 			if (keys & KEY_UP) {
@@ -241,6 +281,10 @@ void menu() {
 				menu_move(2);
 			}
 			needs_redraw = 1;
+		} else if (keys & KEY_A) {
+			consoleSelect(&bottomScreen);
+			menu_action(file_list[view_pos + cur_pos].name);
+			consoleSelect(&topScreen);
 		}
 		if (needs_redraw) {
 			draw_file_list();
