@@ -2,6 +2,9 @@
 # check for these directories so region match
 dir_exist title/00030017/484e4145/
 dir_exist title/00030015/484e4245/
+# rm only acts on regular file, there is no rm -r
+# the wild card * only works at end of the string, and it won't descend into sub directories
+# BEWARE it does NOT have any sanity check, if you write `rm sys/*`, it will do so
 rm title/0003000f/484e4841/*
 5b0a9602d12000c9a1fac5e8a3c75c172a62f793 *title/0003000f/484e4841/title.tmd
 da5123e336d2ca147f03ffc2d1b10e27b7bf822e *title/0003000f/484e4841/00000001.app

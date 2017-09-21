@@ -2,17 +2,20 @@
 #include <nds.h>
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include "common.h"
 #include "utils.h"
-#include "walk.h"
 #include "scripting.h"
 
 extern const char nand_root[];
+extern const char list_dir[];
 
 #define LINE_BUF_LEN 0x100
 static char line_buf[LINE_BUF_LEN];
 static char name_buf[LINE_BUF_LEN];
+
+static swiSHA1context_t ctx;
 
 #define FILE_BUF_LEN (128 << 10)
 static u8* file_buf = 0;
@@ -78,7 +81,7 @@ static void convert_backslash(char *p) {
 	}
 }
 
-static const char *cmd_strs[] = {
+static const char * const cmd_strs[] = {
 	"file_exist",
 	"dir_exist",
 	"rm"
@@ -90,7 +93,7 @@ enum {
 	CMD_RM
 };
 
-// check commands runs in dry run 
+// check commands runs in dry run
 int cmd_is_chk[] = {
 	1,
 	1,
@@ -100,13 +103,17 @@ int cmd_is_chk[] = {
 enum {
 	NO_ERR = 0,
 	ERR_NOT_CMD = -1,
-	ERR_CMD_FAIL = -2
+	ERR_CMD_FAIL = -2,
+	ERR_CP_FAIL = -3,
+	ERR_WEIRD = -4,
+	ERR_SHA1_FAIL = -5
 };
 
 static int cmd_exist(const char * arg, unsigned fmt) {
 	struct stat s;
 	iprintf("%s", arg);
 	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, arg);
+	convert_backslash(name_buf);
 	if (stat(name_buf, &s) == 0 && (s.st_mode & S_IFMT) == fmt) {
 		iprintf(" exist\n");
 		return NO_ERR;
@@ -116,9 +123,60 @@ static int cmd_exist(const char * arg, unsigned fmt) {
 	}
 }
 
+static void rm(const char *name) {
+	int r = remove(name);
+	if (r == 0) {
+		iprintf("removed: %s\n", name);
+	} else {
+		iprintf("removed() returned %d for %s\n", r, name);
+	}
+}
+
 static int cmd_rm(const char * arg) {
 	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, arg);
-	iprintf("not implemented\n");
+	convert_backslash(name_buf);
+	unsigned len = strlen(name_buf);
+	if (len > 2 && name_buf[len - 1] == '*' && name_buf[len - 1] == '/') {
+		// wild card
+		name_buf[len - 1] = 0;
+		while (true) {
+			DIR *d = opendir(name_buf);
+			if (d == 0) {
+				break;
+			}
+			struct dirent *de;
+			int file_found = 0;
+			while ((de = readdir(d)) != 0) {
+				if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
+					continue;
+				}
+				// BEWARE: line_buf destroyed
+				// maybe I should define a secondary name_buf
+				sniprintf(line_buf, LINE_BUF_LEN, "%s%s", name_buf, de->d_name);
+				struct stat s;
+				if (stat(line_buf, &s) != 0) {
+					continue;
+				}
+				if ((s.st_mode & S_IFMT) == S_IFREG) {
+					file_found = 1;
+					rm(line_buf);
+					// we break the loop here since behavior of readdir() becomes undefined in this situation
+					// this is also why listdir is not used
+					// http://pubs.opengroup.org/onlinepubs/007908799/xsh/readdir.html
+					// QUOTE: If a file is removed from or added to the directory after the most recent call to opendir() or rewinddir(), whether a subsequent call to readdir() returns an entry for that file is unspecified.
+					break;
+				}
+			}
+			closedir(d);
+			if (!file_found) {
+				break;
+			}
+		}
+	} else {
+		// single file
+		rm(name_buf);
+	}
+	// it never returns error
 	return NO_ERR;
 }
 
@@ -158,7 +216,6 @@ int sha1_file(void *digest, const char *name) {
 	if (f == 0) {
 		return -1;
 	}
-	swiSHA1context_t ctx;
 	ctx.sha_block = 0;
 	swiSHA1Init(&ctx);
 	int size = 0;
@@ -178,14 +235,46 @@ int sha1_file(void *digest, const char *name) {
 	return size;
 }
 
+int cp(const char *from, const char *to) {
+	FILE *f = fopen(from, "r");
+	if (f == 0) {
+		return -1;
+	}
+	FILE *t = fopen(to, "w");
+	if (t == 0) {
+		fclose(f);
+		return -2;
+	}
+	int ret = 0;
+	while (1) {
+		size_t read = fread(file_buf, 1, FILE_BUF_LEN, f);
+		if (read == 0) {
+			break;
+		}
+		size_t written = fwrite(file_buf, 1, read, t);
+		if (written != read) {
+			ret = -3;
+			break;
+		}
+		if (read < FILE_BUF_LEN) {
+			break;
+		}
+	}
+	fclose(f);
+	fclose(t);
+	return ret;
+}
+
 // this is evolved from parse_sha1sum so the structure is a bit strange
-int scripting(const char *filename, int dry_run){
-	FILE *f = fopen(filename, "r");
+int scripting(const char *scriptname, int dry_run, unsigned *p_size){
+	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", list_dir, scriptname);
+	FILE *f = fopen(name_buf, "r");
 	unsigned irregular = 0;
 	unsigned size = 0;
 	unsigned missing = 0;
 	unsigned wrong = 0;
 	unsigned check = 0;
+	int ret = 0;
 	while (fgets(line_buf, LINE_BUF_LEN, f) != 0) {
 		unsigned len;
 		char *line = trim(line_buf, &len);
@@ -199,7 +288,8 @@ int scripting(const char *filename, int dry_run){
 		if (exe_ret == NO_ERR) {
 			continue;
 		} else if (exe_ret == ERR_CMD_FAIL) {
-			return exe_ret;
+			ret = exe_ret;
+			break;
 		} else if (exe_ret == ERR_NOT_CMD) {
 			// then it's considered a SHA1 line
 			// at least one character for the name
@@ -221,36 +311,59 @@ int scripting(const char *filename, int dry_run){
 			// prepare name
 			char *name = &line[SHA1_LEN * 2 + 2];
 			convert_backslash(name);
-			iprintf("%s ", name);
+			iprintf("%s", name);
 			// hash
 			unsigned char digest[SHA1_LEN];
 			if (dry_run) {
 				int sha1_ret = sha1_file(digest, name);
 				if (sha1_ret == -1) {
-					iprintf("missing\n");
+					iprintf(" missing\n");
 					++missing;
 				} else {
 					size += sha1_ret;
 					if (memcmp(line, digest, SHA1_LEN)) {
-						iprintf("wrong\n");
+						iprintf(" wrong\n");
 						++wrong;
 					} else {
-						iprintf("OK\n");
+						iprintf(" OK\n");
 						++check;
 					}
 				}
+			} else {
+				sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, name);
+				int cp_ret = cp(name, name_buf);
+				if (cp_ret != 0) {
+					iprintf(" failed to copy, cp() returned %d, you may panic now\n", cp_ret);
+					ret = ERR_CP_FAIL;
+					break;
+				}
+				iprintf(" copied to NAND");
+				if (sha1_file(digest, name_buf) == -1) {
+					iprintf(" but missing, weird\n");
+					ret = ERR_WEIRD;
+					break;
+				} else if (memcmp(line, digest, SHA1_LEN)) {
+					iprintf(" but verification failed, you may panic now\n");
+					ret = ERR_SHA1_FAIL;
+					break;
+				} else {
+					iprintf(" and verified\n");
+				}
 			}
-		} else {
-			// should not happen
 		}
 	}
-	iprintf("%u/%u OK/All, %u bytes\n", check, check + missing + wrong, size);
-	if (missing + wrong > 0) {
-		iprintf("%u wrong, %u missing\n", wrong, missing);
+	fclose(f);
+	if (dry_run) {
+		iprintf("%u/%u OK/All, %u bytes\n", check, check + missing + wrong, size);
+		if (missing + wrong > 0) {
+			iprintf("%u wrong, %u missing\n", wrong, missing);
+		}
+		if (irregular > 0) {
+			iprintf("%u irregular lines\n", irregular);
+		}
+		*p_size = size;
+		return ret != 0 ? ret : irregular + missing + wrong;
+	} else {
+		return ret;
 	}
-	if (irregular > 0) {
-		iprintf("%u irregular lines\n", irregular);
-	}
-
-	return irregular + missing + wrong;
 }

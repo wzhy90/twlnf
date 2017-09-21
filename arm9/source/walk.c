@@ -124,6 +124,7 @@ void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
 			callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param);
 		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
+			// use INVALID_SIZE as indication
 			callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param);
 		}
 	}
