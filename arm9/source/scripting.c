@@ -11,11 +11,11 @@
 extern const char nand_root[];
 extern const char list_dir[];
 
+static swiSHA1context_t ctx;
+
 #define LINE_BUF_LEN 0x100
 static char line_buf[LINE_BUF_LEN];
 static char name_buf[LINE_BUF_LEN];
-
-static swiSHA1context_t ctx;
 
 #define FILE_BUF_LEN (128 << 10)
 static u8* file_buf = 0;
