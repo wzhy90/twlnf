@@ -136,8 +136,8 @@ static int cmd_rm(const char * arg) {
 	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, arg);
 	convert_backslash(name_buf);
 	unsigned len = strlen(name_buf);
-	if (len > 2 && name_buf[len - 1] == '*' && name_buf[len - 1] == '/') {
-		// wild card
+	if (len > 2 && name_buf[len - 1] == '*' && name_buf[len - 2] == '/') {
+		// wildcard
 		name_buf[len - 1] = 0;
 		while (true) {
 			DIR *d = opendir(name_buf);
@@ -315,6 +315,7 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 			// hash
 			unsigned char digest[SHA1_LEN];
 			if (dry_run) {
+				// TODO: maybe a "files on NAND are identical" test
 				int sha1_ret = sha1_file(digest, name);
 				if (sha1_ret == -1) {
 					iprintf(" missing\n");

@@ -100,7 +100,7 @@ static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
 }
 
 bool imgio_write_sectors(sec_t offset, sec_t len, const void *buffer) {
-	iprintf("W: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
+	// iprintf("W: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
 	while (len >= CRYPT_BUF_LEN) {
 		if (!write_sectors(offset, CRYPT_BUF_LEN, buffer)) {
 			return false;
