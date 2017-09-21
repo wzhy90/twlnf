@@ -1,42 +1,26 @@
-#include <nds.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <fat.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <inttypes.h>
-#include <sys/statvfs.h>
-#include <dirent.h>
-#include "aes.h"
+#include <nds.h>
+#include <fat.h>
 #include "utils.h"
-#include "crypto.h"
-#include "sector0.h"
-#include "nandio.h"
-#include "imgio.h"
 #include "walk.h"
+#include "nand.h"
 #include "scripting.h"
-
-#define NAND_IMG_MODE 1
 
 #define SHA1_LEN 20
 
-#define NAND_RESERVE (5 * 1024 * 1024)
+#define RESERVE_FREE (5 * 1024 * 1024)
 
 PrintConsole topScreen;
 PrintConsole bottomScreen;
 
-u8 nandcid[16];
-u8 consoleid[8];
+extern const char nand_img_name[];
 
-const char nand_img_name[] = "nand.bin";
+unsigned executions = 0;
 
 const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
-
-static u32 sector_buf32[SECTOR_SIZE/sizeof(u32)];
-static u8 *sector_buf = (u8*)sector_buf32;
 
 #define CONSOLE_WIDTH	32
 #define CONSOLE_HEIGHT	23
@@ -113,7 +97,7 @@ void menu_move(int move) {
 		if (cur_pos > 0) {
 			--cur_pos;
 		} else {
-			// TODO: move window
+			// TODO: move view
 		}
 		break;
 	case 1:
@@ -157,18 +141,6 @@ unsigned wait_keys(unsigned keys) {
 	}
 }
 
-size_t df(int verbose) {
-	// it's amazing libfat even got this to work
-	struct statvfs s;
-	statvfs(nand_root, &s);
-	size_t free = s.f_bsize * s.f_bfree;
-	if (verbose) {
-		iprintf("%s", to_mebi(free));
-		iprintf("/%s MB (free/total)\n", to_mebi(s.f_bsize * s.f_blocks));
-	}
-	return free;
-}
-
 void walk_cb_lst(const char *name, void *p_param) {
 	iprintf("%s\n", name);
 	fiprintf((FILE*)p_param, "%s\n", name);
@@ -200,19 +172,19 @@ void menu_action(const char *name) {
 	if (ret != 0) {
 		return;
 	}
-	if (df(0) < size + NAND_RESERVE) {
+	if (df(nand_root, 0) < size + RESERVE_FREE) {
 		iprintf("insufficient NAND space\n");
 		return;
 	}
 	iprintf("execute? Yes(A)/No(B)\n");
 	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
 		ret = scripting(name, 0, 0);
+		// TODO: some scripts might not induce writes
+		++executions;
 		iprintf("execution returned %d\n", ret);
 		// maybe we should prompt to restore a NAND image
 	}
 }
-
-// uint32 prev_keys = 0;
 
 void menu() {
 	// list
@@ -232,14 +204,6 @@ void menu() {
 		swiWaitForVBlank();
 		scanKeys();
 		uint32 keys = keysDown();
-		/*
-		if (keys != prev_keys) {
-			consoleSelect(&bottomScreen);
-			iprintf("%08lx\n", keys);
-			consoleSelect(&topScreen);
-			prev_keys = keys;
-		}
-		*/
 		consoleSelect(&bottomScreen);
 		if (keys & KEY_B) {
 			break;
@@ -272,79 +236,6 @@ void menu() {
 	}
 }
 
-int test_console_id() {
-	// 
-}
-
-int test_sector0() {
-	int is3DS = parse_ncsd(sector_buf, 0);
-	iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
-
-	dsi_nand_crypt_init(consoleid, nandcid, is3DS);
-
-	// check MBR
-	dsi_nand_crypt(sector_buf, sector_buf, 0, SECTOR_SIZE / AES_BLOCK_SIZE);
-	int mbr_ok = parse_mbr(sector_buf, is3DS, 0);
-	if (mbr_ok != 1) {
-		iprintf("most likely Console ID is wrong\n");
-		exit_with_prompt(-4);
-	} else {
-		iprintf("MBR OK\n");
-	}
-
-}
-
-int test_nand_image() {
-	FILE *f = fopen(nand_img_name, "r");
-	if (f == 0) {
-		iprintf("can't open %s\n", nand_img_name);
-		exit_with_prompt(0);
-	}
-	size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
-	if (read != SECTOR_SIZE) {
-		iprintf("read = %u, expecting %u\n", (unsigned)read, SECTOR_SIZE);
-		exit_with_prompt(0);
-	}
-	fclose(f);
-}
-
-int mount_nand() {
-
-	nand_ReadSectors(0, 1, sector_buf);
-	mbr_t *mbr = (mbr_t*)sector_buf;
-#if NAND_IMG_MODE
-	imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
-	if (!fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64)) {
-#else
-	nandio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
-	if (!fatMount(nand_vol_name, &io_dsi_nand, mbr->partitions[0].offset, 4, 64)) {
-#endif
-		iprintf("failed to mount NAND\n");
-		exit_with_prompt(-5);
-	} else {
-		iprintf("NAND mounted\n");
-	}
-
-	///* // the volume label is all white space?
-	char vol_label[32];
-	fatGetVolumeLabel(nand_vol_name, vol_label);
-	iprintf("label: \"%s\"\n", vol_label);
-	//*/
-	df(1);
-}
-
-int mount_nand_img(int test_match_console) {
-
-}
-
-int dump_nand() {
-
-}
-
-int restore_nand() {
-
-}
-
 int main(int argc, const char * const argv[]) {
 	defaultExceptionHandler();
 
@@ -359,18 +250,35 @@ int main(int argc, const char * const argv[]) {
 
 	consoleSelect(&bottomScreen);
 
-	// in this mode, we only do test on a nand image
-	// this is mainly for like testing an DSi image in 3DS TWL mode
-	int img_test_mode = 0;
+	/* 3 modes:
+		0, (RO) direct mode, mounts real NAND
+			(TODO) if any writes failed, prompt to restore a image
+				so a valid native NAND image is required to enter direct mode
+					verify against an existing sha1
+					native: sector 0 match NAND, IDs in footer match hardware
+		1, image mode, mount an image
+			(TODO) if such image doesn't exist, prompt to create one
+			test against NAND sector 0 and native IDs
+			(TODO) update nand.sha1 upon quiting
+		2, image test mode, mount an image without checks
+			not test against NAND sector 0 and native IDs
+			this is mainly for testing a foreign NAND image
+			of course footer needs to be valid
+	*/
+
+	int mode = 0;
 
 	if (argc > 1) {
 		for (unsigned i = 1; i < argc; ++i) {
 			if (!strcmp(argv[i], "--img-test")) {
-				iprintf("image test mode");
-				img_test_mode = 1;
+				iprintf("image test mode\n");
+				mode = 2;
 			}
 		}
 	}
+
+	u32 bat_reg = getBatteryLevel();
+	iprintf("battery: %08" PRIx32 "\n", bat_reg);
 
 	iprintf("FAT init...");
 
@@ -381,51 +289,59 @@ int main(int argc, const char * const argv[]) {
 		iprintf("\x1b[3D succeed\n");
 	}
 
-	if (!isDSiMode()) {
-		iprintf("not running in DSi mode\n");
-		exit_with_prompt(-2);
-	}
-
-	if (img_test_mode) {
-		mount_nand(0, 1);
+	int ret;
+	if (mode == 2) {
+		if ((ret = test_image_against_footer()) != 0) {
+			exit_with_prompt(ret);
+		}
+		if ((ret = mount(0)) != 0) {
+			exit_with_prompt(ret);
+		}
 	}else{
-		ssize_t nand_size = nand_GetSize();
-		if (nand_size == 0) {
-			iprintf("can't access NAND\n");
-			exit_with_prompt(-3);
+		if ((ret = get_ids()) != 0) {
+			exit_with_prompt(ret);
 		}
-		iprintf("NAND: %d sectors, %s MB\n", nand_size, to_mebi(nand_size * 512));
-
-		fifoSendValue32(FIFO_USER_01, 4);
-		while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
-		fifoGetDatamsg(FIFO_USER_01, 16, (u8*)nandcid);
-		iprintf("NAND CID:\n");
-		print_bytes(nandcid, 16);
-		char *pConsoleIDFile = 0;
-		size_t ConsoleIDFileSize;
-		bool consoleIDFromFile = false;
-		if (load_file((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console_id.txt", false, 0) == 0) {
-			if (ConsoleIDFileSize >= 16 && hex2bytes(consoleid, 8, pConsoleIDFile) == 0) {
-				consoleIDFromFile = true;
+		int is3DS;
+		if ((ret = test_ids_against_nand(&is3DS)) != 0) {
+			iprintf("most likely Console ID is wrong\n");
+			exit_with_prompt(ret);
+		}
+		if (is3DS) {
+			iprintf("don't use this on 3DS\n");
+			exit_with_prompt(0);
+		}
+		// TODO: also test against sha1
+		if ((ret = test_image_against_nand()) != 0) {
+			iprintf("you don't have a valid NAND backup, backup now? Yes(A)/No(B)\n");
+			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
+				if ((ret = backup()) != 0) {
+					iprintf("backup failed\n");
+					exit_with_prompt(ret);
+				}
+			} else {
+				exit_with_prompt(-1);
 			}
-			free(pConsoleIDFile);
 		}
-		if (!consoleIDFromFile) {
-			fifoSendValue32(FIFO_USER_01, 5);
-			while (fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
-			fifoGetDatamsg(FIFO_USER_01, 8, consoleid);
+		// either way, we should have a valid NAND image by now
+		iprintf("image mode(A) or direct mode(X)?\n");
+		if (wait_keys(KEY_A | KEY_X) & KEY_X) {
+			mode = 0;
+		} else {
+			mode = 1;
 		}
-		iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
-		print_bytes(consoleid, 8);
-		iprintf("\n");
+		if((ret = mount(mode == 0 ? 1 : 0)) != 0) {
+			exit_with_prompt(ret);
+		}
 	}
 
-
-	if (scripting_init() != 0) {
-		exit_with_prompt(-1);
+	if ((ret = scripting_init()) != 0) {
+		fatUnmount(nand_vol_name);
+		exit_with_prompt(ret);
 	}
 
 	menu();
 
 	fatUnmount(nand_vol_name);
+	// TODO: in image mode, update sha1 if writes > 0
+	// TODO: in direct mode, restore NAND image if anything bad happens
 }

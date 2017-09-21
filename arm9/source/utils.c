@@ -1,8 +1,12 @@
 
 #include <stdio.h>
 #include <inttypes.h>
+#include <sys/statvfs.h>
 #include <nds.h>
 #include "utils.h"
+
+// globals shared by extern
+swiSHA1context_t sha1ctx;
 
 static inline int htoi(char a){
 	if(a >= '0' && a <= '9'){
@@ -57,11 +61,10 @@ int save_file(const char *filename, u8 *buffer, size_t size, int save_sha1) {
 		iprintf("saved %s\n", filename);
 	}
 	if (save_sha1) {
-		swiSHA1context_t ctx;
-		ctx.sha_block = 0;
-		swiSHA1Init(&ctx);
-		swiSHA1Update(&ctx, buffer, size);
-		save_sha1_file(filename, &ctx);
+		sha1ctx.sha_block = 0;
+		swiSHA1Init(&sha1ctx);
+		swiSHA1Update(&sha1ctx, buffer, size);
+		save_sha1_file(filename);
 	}
 	return 0;
 }
@@ -94,13 +97,14 @@ int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1,
 		}
 		if (verify_sha1) {
 			//TODO:
+			iprintf("%s: not implemented\n", __FUNCTION__);
 		}
 		fclose(f);
 		return 0;
 	}
 }
 
-int save_sha1_file(const char *filename, swiSHA1context_t *ctx) {
+int save_sha1_file(const char *filename) {
 	size_t len_fn = strlen(filename);
 	char *sha1_fn = (char *)malloc(len_fn + 6);
 	siprintf(sha1_fn, "%s.sha1", filename);
@@ -109,7 +113,7 @@ int save_sha1_file(const char *filename, swiSHA1context_t *ctx) {
 	char *sha1_buf = (char *)malloc(len_buf + 1); // extra for \0
 	char *p = sha1_buf;
 	char *digest = (char *)malloc(20);
-	swiSHA1Final(digest, ctx);
+	swiSHA1Final(digest, &sha1ctx);
 	for (int i = 0; i < 20; ++i) {
 		p += siprintf(p, "%02X", digest[i]);
 	}
@@ -126,5 +130,17 @@ void print_bytes(const void *buf, size_t len) {
 	for(size_t i = 0; i < len; ++i) {
 		iprintf("%02" PRIx8, *p++);
 	}
+}
+
+size_t df(const char *path, int verbose) {
+	// it's amazing libfat even got this to work
+	struct statvfs s;
+	statvfs(path, &s);
+	size_t free = s.f_bsize * s.f_bfree;
+	if (verbose) {
+		iprintf("%s", to_mebi(free));
+		iprintf("/%s MB (free/total)\n", to_mebi(s.f_bsize * s.f_blocks));
+	}
+	return free;
 }
 

@@ -5,7 +5,7 @@
 #include "utils.h"
 #include "sector0.h"
 
-// return 1 for valid NCSD header
+// return 0 for valid NCSD header
 int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 	const ncsd_header_t * h = (ncsd_header_t *)sector0;
 	if (h->magic == 0x4453434e) {
@@ -16,7 +16,7 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 		if (verbose) {
 			iprintf("NCSD magic not found\n");
 		}
-		return 0;
+		return -1;
 	}
 	if (verbose) {
 		iprintf("size: %" PRIu32 " sectors, %s MB\n", h->size, to_mebi(h->size * SECTOR_SIZE));
@@ -43,7 +43,7 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 				if (verbose) {
 					iprintf("invalid partition type %d\n", fs_type);
 				}
-				return 0;
+				return -2;
 		}
 		if (verbose) {
 			// yes I use MB for "MiB", bite me
@@ -52,7 +52,7 @@ int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
 				h->partitions[i].offset, h->partitions[i].length, to_mebi(h->partitions[i].length * SECTOR_SIZE));
 		}
 	}
-	return 1;
+	return 0;
 }
 
 const mbr_partition_t ptable_DSi[MBR_PARTITIONS] = {
@@ -69,14 +69,14 @@ const mbr_partition_t ptable_3DS[MBR_PARTITIONS] = {
 	{0, {0, 0, 0}, 0, {0, 0, 0}, 0, 0}
 };
 
-// return 1 for valid MBR
+// return 0 for valid MBR
 int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	const mbr_t *m = (mbr_t*)sector0;
 	const mbr_partition_t *ref_ptable; // reference partition table
-	int ret = 1;
+	int ret = 0;
 	if (m->boot_signature_0 != 0x55 || m->boot_signature_1 != 0xaa) {
 		iprintf("invalid boot signature(0x55, 0xaa)\n");
-		ret = 0;
+		ret = -1;
 	}
 	if (!is3DS) {
 		for (unsigned i = 0; i < sizeof(m->bootstrap); ++i) {
@@ -93,7 +93,7 @@ int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	if (memcmp(ref_ptable, sector0 + MBR_BOOTSTRAP_SIZE,
 		sizeof(mbr_partition_t) * MBR_PARTITIONS)) {
 		iprintf("invalid partition table\n");
-		ret = 0;
+		ret = -2;
 	}
 	if (!verbose) {
 		return ret;

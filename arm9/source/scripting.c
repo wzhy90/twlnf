@@ -11,7 +11,7 @@
 extern const char nand_root[];
 extern const char list_dir[];
 
-static swiSHA1context_t ctx;
+extern swiSHA1context_t sha1ctx;
 
 #define LINE_BUF_LEN 0x100
 static char line_buf[LINE_BUF_LEN];
@@ -216,8 +216,8 @@ int sha1_file(void *digest, const char *name) {
 	if (f == 0) {
 		return -1;
 	}
-	ctx.sha_block = 0;
-	swiSHA1Init(&ctx);
+	sha1ctx.sha_block = 0;
+	swiSHA1Init(&sha1ctx);
 	int size = 0;
 	while (1) {
 		size_t read = fread(file_buf, 1, FILE_BUF_LEN, f);
@@ -225,13 +225,13 @@ int sha1_file(void *digest, const char *name) {
 			break;
 		}
 		size += read;
-		swiSHA1Update(&ctx, file_buf, read);
+		swiSHA1Update(&sha1ctx, file_buf, read);
 		if (read < FILE_BUF_LEN) {
 			break;
 		}
 	}
 	fclose(f);
-	swiSHA1Final(digest, &ctx);
+	swiSHA1Final(digest, &sha1ctx);
 	return size;
 }
 

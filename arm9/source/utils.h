@@ -12,6 +12,8 @@ int save_file(const char *filename, u8 *buffer, size_t size, int save_sha1);
 
 int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align);
 
-int save_sha1_file(const char *filename, swiSHA1context_t *ctx);
+int save_sha1_file(const char *filename);
 
 void print_bytes(const void *buf, size_t len);
+
+size_t df(const char *path, int verbose);
