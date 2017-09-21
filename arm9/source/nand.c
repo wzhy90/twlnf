@@ -21,6 +21,9 @@ const char nand_img_name[] = "nand.bin";
 static u32 sector_buf32[SECTOR_SIZE/sizeof(u32)];
 static u8 *sector_buf = (u8*)sector_buf32;
 
+static u32 sector_buf_a32[SECTOR_SIZE/sizeof(u32)];
+static u8 *sector_buf_a = (u8*)sector_buf_a32;
+
 static ssize_t nand_size;
 
 static u32 emmc_cid32[4];
@@ -106,7 +109,7 @@ int get_ids() {
 
 int test_sector0(int *p_is3DS) {
 	int is3DS = parse_ncsd(sector_buf, 0) == 0;
-	iprintf("sector 0 is %s\n", is3DS ? "3DS" : "DSi");
+	// iprintf("sector 0 is %s\n", is3DS ? "3DS" : "DSi");
 	dsi_nand_crypt_init(console_id, emmc_cid, is3DS);
 	dsi_nand_crypt(sector_buf, sector_buf, 0, SECTOR_SIZE / AES_BLOCK_SIZE);
 	if (p_is3DS) {
@@ -127,15 +130,14 @@ int test_image_against_nand() {
 		return -1;
 	}
 	// test sector 0 against NAND
-	size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
+	nand_ReadSectors(0, 1, sector_buf);
+	size_t read = fread(sector_buf_a, 1, SECTOR_SIZE, f);
 	if (read != SECTOR_SIZE) {
 		iprintf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
 		fclose(f);
 		return -1;
 	}
-	u32 sector_buf_a[SECTOR_SIZE/sizeof(u32)];
-	nand_ReadSectors(0, 1, sector_buf_a);
-	if (memcmp(sector_buf, sector_buf_a, SECTOR_SIZE)) {
+	if (memcmp(sector_buf, sector_buf_a, SECTOR_SIZE) != 0) {
 		iprintf("sector 0 doesn't match, foreign NAND image?\n");
 		fclose(f);
 		return -2;
@@ -150,17 +152,19 @@ int test_image_against_nand() {
 		return -3;
 	}
 	// test footer
-	fseek(f, -sizeof(nocash_footer_t), SEEK_END);
+	generate_footer();
+	fseek(f, nand_size * SECTOR_SIZE, SEEK_SET);
 	read = fread(sector_buf_a, 1, sizeof(nocash_footer_t), f);
 	if (read != sizeof(nocash_footer_t)) {
 		iprintf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
 		fclose(f);
 		return -1;
 	}
-	generate_footer();
 	if (memcmp(sector_buf, sector_buf_a, sizeof(nocash_footer_t)) != 0) {
 		iprintf("invalid footer\n");
 		fclose(f);
+		// save_file("footer_expected.bin", sector_buf, sizeof(nocash_footer_t), 0);
+		// save_file("footer_img.bin", sector_buf_a, sizeof(nocash_footer_t), 0);
 		return -4;
 	}
 	fclose(f);
@@ -175,7 +179,10 @@ int test_image_against_footer() {
 		return -1;
 	}
 	// read and validate footer
-	fseek(f, -sizeof(nocash_footer_t), SEEK_END);
+	fseek(f, 0, SEEK_END);
+	unsigned size = ftell(f) - sizeof(nocash_footer_t);
+	iprintf("image size sans footer: %s MB\n", to_mebi(size));
+	fseek(f, size, SEEK_SET);
 	size_t read = fread(sector_buf, 1, sizeof(nocash_footer_t), f);
 	if (read != sizeof(nocash_footer_t)) {
 		iprintf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
@@ -190,8 +197,9 @@ int test_image_against_footer() {
 	}
 	// extract IDs
 	memcpy(emmc_cid, footer->emmc_cid, sizeof(footer->emmc_cid));
-	reverse8(console_id, console_id);
+	reverse8(console_id, footer->console_id);
 	// read sector 0
+	fseek(f, 0, SEEK_SET);
 	read = fread(sector_buf, 1, SECTOR_SIZE, f);
 	if (read != SECTOR_SIZE) {
 		iprintf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
@@ -222,16 +230,20 @@ int mount(int direct) {
 	}
 	int is3DS;
 	test_sector0(&is3DS);
+	if (is3DS) {
+		iprintf("no point use this on 3DS\n");
+		return -2;
+	}
 	mbr_t *mbr = (mbr_t*)sector_buf;
 	int mnt_ret;
 	if (direct) {
-		nandio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
+		nandio_set_fat_sig_fix(mbr->partitions[0].offset);
 		mnt_ret = fatMount(nand_vol_name, &io_dsi_nand, mbr->partitions[0].offset, 4, 64);
 	} else {
-		imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
+		imgio_set_fat_sig_fix(mbr->partitions[0].offset);
 		mnt_ret = fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64);
 	}
-	if (mnt_ret != 0) {
+	if (mnt_ret == 0) {
 		iprintf("failed to mount %s\n", direct ? nand_vol_name : nand_img_name);
 		return -2;
 	} else {

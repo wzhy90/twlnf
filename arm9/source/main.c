@@ -254,16 +254,15 @@ int main(int argc, const char * const argv[]) {
 		0, (RO) direct mode, mounts real NAND
 			(TODO) if any writes failed, prompt to restore a image
 				so a valid native NAND image is required to enter direct mode
-					verify against an existing sha1
-					native: sector 0 match NAND, IDs in footer match hardware
-		1, image mode, mount an image
-			(TODO) if such image doesn't exist, prompt to create one
+					valid: contains valid no$gba footer which can decrypt itself
+					native: IDs identical to running hardware
+		1, image mode, mount a valid native image
+			if such image doesn't exist, prompt to create one
 			test against NAND sector 0 and native IDs
 			(TODO) update nand.sha1 upon quiting
-		2, image test mode, mount an image without checks
-			not test against NAND sector 0 and native IDs
-			this is mainly for testing a foreign NAND image
-			of course footer needs to be valid
+		2, (DEBUG) image test mode, mount a valid image
+			but not necessarily native
+			this is for testing a foreign NAND image
 	*/
 
 	int mode = 0;
@@ -302,13 +301,14 @@ int main(int argc, const char * const argv[]) {
 			exit_with_prompt(ret);
 		}
 		int is3DS;
-		if ((ret = test_ids_against_nand(&is3DS)) != 0) {
+		ret = test_ids_against_nand(&is3DS);
+		if (is3DS) {
+			iprintf("no point to use this on 3DS\n");
+			exit_with_prompt(0);
+		}
+		if (ret != 0) {
 			iprintf("most likely Console ID is wrong\n");
 			exit_with_prompt(ret);
-		}
-		if (is3DS) {
-			iprintf("don't use this on 3DS\n");
-			exit_with_prompt(0);
 		}
 		// TODO: also test against sha1
 		if ((ret = test_image_against_nand()) != 0) {

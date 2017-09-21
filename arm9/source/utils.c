@@ -49,7 +49,7 @@ const char *to_mebi(size_t size) {
 	return str_buf;
 }
 
-int save_file(const char *filename, u8 *buffer, size_t size, int save_sha1) {
+int save_file(const char *filename, const void *buffer, size_t size, int save_sha1) {
 	FILE *f = fopen(filename, "wb");
 	if (NULL==f) return -1;
 	size_t written = fwrite(buffer, 1, size, f);

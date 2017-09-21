@@ -135,8 +135,13 @@ static void dsi_make_key(u32 *key, u32 console_id_l, u32 console_id_h, int is3DS
 static u32 rk[RK_LEN];
 static u32 ctr_base[4];
 
+int tables_generated = 0;
+
 void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
-	aes_gen_tables();
+	if (tables_generated == 0) {
+		aes_gen_tables();
+		tables_generated = 1;
+	}
 
 	u32 key[4];
 	u32 console_id_l = u32be(console_id + 4);

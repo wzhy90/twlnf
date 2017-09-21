@@ -282,7 +282,7 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 		if (len == 0 || line[0] == '#') {
 			continue;
 		}
-		iprintf("DEBUG: %s\n", line);
+		// iprintf("DEBUG: %s\n", line);
 		// try to run it as a cmd
 		int exe_ret = execute_cmd(line, len, dry_run);
 		if (exe_ret == NO_ERR) {
