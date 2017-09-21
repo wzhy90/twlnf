@@ -35,6 +35,9 @@ const char nand_img_name[] = "nand.bin";
 const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
 
+static u32 sector_buf32[SECTOR_SIZE/sizeof(u32)];
+static u8 *sector_buf = (u8*)sector_buf32;
+
 #define CONSOLE_WIDTH	32
 #define CONSOLE_HEIGHT	23
 
@@ -269,107 +272,11 @@ void menu() {
 	}
 }
 
-int main() {
-	defaultExceptionHandler();
+int test_console_id() {
+	// 
+}
 
-	videoSetMode(MODE_0_2D);
-	videoSetModeSub(MODE_0_2D);
-
-	vramSetBankA(VRAM_A_MAIN_BG);
-	vramSetBankC(VRAM_C_SUB_BG);
-
-	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
-
-	consoleSelect(&bottomScreen);
-
-	iprintf("FAT init...");
-
-	if (!fatInitDefault()) {
-		iprintf("\rFAT init failed!\n");
-		exit_with_prompt(-1);
-	} else {
-		iprintf("\rFAT init succeed\n");
-	}
-
-	u8 *sector_buf = (u8*)memalign(32, SECTOR_SIZE);
-
-#if !NAND_IMG_MODE
-	if (!isDSiMode()) {
-		iprintf("not running in DSi mode\n");
-		exit_with_prompt(-2);
-	}
-
-	ssize_t nandSize = nand_GetSize();
-	if (nandSize == 0) {
-		iprintf("can't access NAND\n");
-		exit_with_prompt(-3);
-	}
-
-	iprintf("NAND: %d sectors, %s MB\n", nandSize, to_mebi(nandSize * 512));
-#endif
-
-	iprintf("NAND CID:\n");
-#if NAND_IMG_MODE
-	char *pCIDFile = 0;
-	size_t CIDFileSize;
-	bool CIDFromFile = false;
-	if (load_file((void**)&pCIDFile, &CIDFileSize, "cid.txt", false, 0) == 0) {
-		if (CIDFileSize >= 32 && hex2bytes(nandcid, 16, pCIDFile) == 0) {
-			CIDFromFile = true;
-		}
-		free(pCIDFile);
-	}
-	if (!CIDFromFile) {
-		iprintf("cid.txt missing/invalid\n");
-		exit_with_prompt(0);
-	}
-#else
-	fifoSendValue32(FIFO_USER_01, 4);
-	while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
-	fifoGetDatamsg(FIFO_USER_01, 16, (u8*)nandcid);
-#endif
-	print_bytes(nandcid, 16);
-
-	char *pConsoleIDFile = 0;
-	size_t ConsoleIDFileSize;
-	bool consoleIDFromFile = false;
-	if (load_file((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console_id.txt", false, 0) == 0) {
-		if (ConsoleIDFileSize >= 16 && hex2bytes(consoleid, 8, pConsoleIDFile) == 0) {
-			consoleIDFromFile = true;
-		}
-		free(pConsoleIDFile);
-	}
-	if (!consoleIDFromFile) {
-#if NAND_IMG_MODE
-		iprintf("console_id.txt missing/invalid\n");
-		exit_with_prompt(0);
-#else
-		fifoSendValue32(FIFO_USER_01, 5);
-		while (fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
-		fifoGetDatamsg(FIFO_USER_01, 8, consoleid);
-#endif
-	}
-	iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
-	print_bytes(consoleid, 8);
-	iprintf("\n");
-
-	// check NCSD header
-#if NAND_IMG_MODE
-	FILE *f = fopen(nand_img_name, "r");
-	if (f == 0) {
-		iprintf("can't open %s\n", nand_img_name);
-		exit_with_prompt(0);
-	}
-	size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
-	if (read != SECTOR_SIZE) {
-		iprintf("read = %u, expecting %u\n", (unsigned)read, SECTOR_SIZE);
-		exit_with_prompt(0);
-	}
-	fclose(f);
-#else
-	nand_ReadSectors(0, 1, sector_buf);
-#endif
+int test_sector0() {
 	int is3DS = parse_ncsd(sector_buf, 0);
 	iprintf("%s mode\n", is3DS ? "3DS" : "DSi");
 
@@ -385,8 +292,26 @@ int main() {
 		iprintf("MBR OK\n");
 	}
 
+}
+
+int test_nand_image() {
+	FILE *f = fopen(nand_img_name, "r");
+	if (f == 0) {
+		iprintf("can't open %s\n", nand_img_name);
+		exit_with_prompt(0);
+	}
+	size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
+	if (read != SECTOR_SIZE) {
+		iprintf("read = %u, expecting %u\n", (unsigned)read, SECTOR_SIZE);
+		exit_with_prompt(0);
+	}
+	fclose(f);
+}
+
+int mount_nand() {
+
+	nand_ReadSectors(0, 1, sector_buf);
 	mbr_t *mbr = (mbr_t*)sector_buf;
-	// finally mount NAND
 #if NAND_IMG_MODE
 	imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
 	if (!fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64)) {
@@ -406,6 +331,95 @@ int main() {
 	iprintf("label: \"%s\"\n", vol_label);
 	//*/
 	df(1);
+}
+
+int mount_nand_img(int test_match_console) {
+
+}
+
+int dump_nand() {
+
+}
+
+int restore_nand() {
+
+}
+
+int main(int argc, const char * const argv[]) {
+	defaultExceptionHandler();
+
+	videoSetMode(MODE_0_2D);
+	videoSetModeSub(MODE_0_2D);
+
+	vramSetBankA(VRAM_A_MAIN_BG);
+	vramSetBankC(VRAM_C_SUB_BG);
+
+	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
+	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+
+	consoleSelect(&bottomScreen);
+
+	// in this mode, we only do test on a nand image
+	// this is mainly for like testing an DSi image in 3DS TWL mode
+	int img_test_mode = 0;
+
+	if (argc > 1) {
+		for (unsigned i = 1; i < argc; ++i) {
+			if (!strcmp(argv[i], "--img-test")) {
+				iprintf("image test mode");
+				img_test_mode = 1;
+			}
+		}
+	}
+
+	iprintf("FAT init...");
+
+	if (!fatInitDefault()) {
+		iprintf("\x1b[3D failed!\n");
+		exit_with_prompt(-1);
+	} else {
+		iprintf("\x1b[3D succeed\n");
+	}
+
+	if (!isDSiMode()) {
+		iprintf("not running in DSi mode\n");
+		exit_with_prompt(-2);
+	}
+
+	if (img_test_mode) {
+		mount_nand(0, 1);
+	}else{
+		ssize_t nand_size = nand_GetSize();
+		if (nand_size == 0) {
+			iprintf("can't access NAND\n");
+			exit_with_prompt(-3);
+		}
+		iprintf("NAND: %d sectors, %s MB\n", nand_size, to_mebi(nand_size * 512));
+
+		fifoSendValue32(FIFO_USER_01, 4);
+		while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
+		fifoGetDatamsg(FIFO_USER_01, 16, (u8*)nandcid);
+		iprintf("NAND CID:\n");
+		print_bytes(nandcid, 16);
+		char *pConsoleIDFile = 0;
+		size_t ConsoleIDFileSize;
+		bool consoleIDFromFile = false;
+		if (load_file((void**)&pConsoleIDFile, &ConsoleIDFileSize, "console_id.txt", false, 0) == 0) {
+			if (ConsoleIDFileSize >= 16 && hex2bytes(consoleid, 8, pConsoleIDFile) == 0) {
+				consoleIDFromFile = true;
+			}
+			free(pConsoleIDFile);
+		}
+		if (!consoleIDFromFile) {
+			fifoSendValue32(FIFO_USER_01, 5);
+			while (fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
+			fifoGetDatamsg(FIFO_USER_01, 8, consoleid);
+		}
+		iprintf("Console ID (from %s):\n", consoleIDFromFile ? "file" : "RAM");
+		print_bytes(consoleid, 8);
+		iprintf("\n");
+	}
+
 
 	if (scripting_init() != 0) {
 		exit_with_prompt(-1);
