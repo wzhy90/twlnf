@@ -76,6 +76,7 @@ void file_list_add(const char *name, size_t size, void *_) {
 		// shortest valid name would be like "1.nfs"
 		return;
 	}
+	// abbreviation for NAND File Script
 	if (strcmp(".nfs", name + len_name - 4)){
 		return;
 	}
@@ -188,8 +189,9 @@ void walk_cb_dump(const char *name, void *_) {
 }
 
 void menu_action(const char *name) {
-	iprintf("%s\n", name);
-	scripting(name, 1);
+	iprintf("scripting: %s\n", name);
+	int ret = scripting(name, 1);
+	iprintf("dry run returned %d\n", ret);
 }
 
 // uint32 prev_keys = 0;
@@ -197,7 +199,7 @@ void menu_action(const char *name) {
 void menu() {
 	// list
 	file_list_len = 0;
-	listdir(pwd, file_list_add, 0);
+	listdir(pwd, 0, file_list_add, 0);
 	// init menu
 	consoleSelect(&topScreen);
 	view_pos = 0;
