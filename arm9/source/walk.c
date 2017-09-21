@@ -9,6 +9,9 @@
 #include <string.h>
 #include "walk.h"
 
+#define NAME_BUF_LEN 0x100
+static char name_buf[NAME_BUF_LEN];
+
 #define STACK_DEPTH 0x400
 
 static void **base = 0;
@@ -103,8 +106,7 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 	return 0;
 }
 
-void listdir(const char *dir, void(*callback)(const char*, size_t, void*), void *p_cb_param) {
-	size_t len_dir = strlen(dir);
+void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t, void*), void *p_cb_param) {
 	DIR * d = opendir(dir);
 	if (d == 0) {
 		return;
@@ -114,21 +116,16 @@ void listdir(const char *dir, void(*callback)(const char*, size_t, void*), void 
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 			continue;
 		}
-		char *fullname = (char*)malloc(len_dir + 1 + strlen(de->d_name) + 1);
-		if (fullname == 0) {
-			return;
-		}
-		siprintf(fullname, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
+		sniprintf(name_buf, NAME_BUF_LEN, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
 		struct stat s;
-		if (stat(fullname, &s) != 0) {
-			free(fullname);
+		if (stat(name_buf, &s) != 0) {
 			continue;
 		}
-		free(fullname);
-		if (s.st_mode & S_IFREG) {
-			callback(de->d_name, s.st_size, p_cb_param);
-		} else if (s.st_mode & S_IFDIR) {
-			callback(de->d_name, INVALID_SIZE, p_cb_param);
+		if ((s.st_mode & S_IFMT) == S_IFREG) {
+			callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param);
+		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
+			// use INVALID_SIZE as indication
+			callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param);
 		}
 	}
 	closedir(d);

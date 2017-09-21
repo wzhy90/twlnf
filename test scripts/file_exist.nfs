@@ -1,0 +1,4 @@
+# should be positive
+file_exist sys/dev.kp
+# should be negative
+file_exist some file

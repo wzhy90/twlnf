@@ -57,7 +57,7 @@ typedef struct {
 
 #define FILE_LIST_MAX 0x100
 
-const char pwd[] = ".";
+const char list_dir[] = "scripts/";
 const char footer[] = "(A)select (B)quit";
 file_list_item_t file_list[FILE_LIST_MAX];
 unsigned file_list_len;
@@ -76,6 +76,7 @@ void file_list_add(const char *name, size_t size, void *_) {
 		// shortest valid name would be like "1.nfs"
 		return;
 	}
+	// abbreviation for NAND File Script
 	if (strcmp(".nfs", name + len_name - 4)){
 		return;
 	}
@@ -88,7 +89,7 @@ void file_list_add(const char *name, size_t size, void *_) {
 
 void draw_file_list() {
 	// TODO: right align position
-	iprintf(Cls Red "%s %u/%u\n", pwd, view_pos + cur_pos + 1, file_list_len);
+	iprintf(Cls Red "%s %u/%u\n", list_dir, view_pos + cur_pos + 1, file_list_len);
 	for (unsigned i = 0; i < VIEW_HEIGHT; ++i) {
 		if (view_pos + i < file_list_len) {
 			iprintf(i == cur_pos ? Grn : Wht);
@@ -188,8 +189,24 @@ void walk_cb_dump(const char *name, void *_) {
 }
 
 void menu_action(const char *name) {
-	iprintf("%s\n", name);
-	scripting(name, 1);
+	iprintf("dry run: %s\n", name);
+	unsigned size;
+	// dry run
+	int ret = scripting(name, 1, &size);
+	iprintf("dry run returned %d\n", ret);
+	if (ret != 0) {
+		return;
+	}
+	if (df(0) < size + NAND_RESERVE) {
+		iprintf("insufficient NAND space\n");
+		return;
+	}
+	iprintf("execute? Yes(A)/No(B)\n");
+	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
+		ret = scripting(name, 0, 0);
+		iprintf("execution returned %d\n", ret);
+		// maybe we should prompt to restore a NAND image
+	}
 }
 
 // uint32 prev_keys = 0;
@@ -197,7 +214,11 @@ void menu_action(const char *name) {
 void menu() {
 	// list
 	file_list_len = 0;
-	listdir(pwd, file_list_add, 0);
+	listdir(list_dir, 0, file_list_add, 0);
+	if (file_list_len == 0) {
+		iprintf("no script in %s\n", list_dir);
+		exit_with_prompt(-1);
+	}
 	// init menu
 	consoleSelect(&topScreen);
 	view_pos = 0;
@@ -207,7 +228,7 @@ void menu() {
 	while (1) {
 		swiWaitForVBlank();
 		scanKeys();
-		uint32 keys = keysDownRepeat();
+		uint32 keys = keysDown();
 		/*
 		if (keys != prev_keys) {
 			consoleSelect(&bottomScreen);
