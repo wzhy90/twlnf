@@ -334,6 +334,8 @@ int main(int argc, const char * const argv[]) {
 		}
 	}
 
+	df(nand_root, 1);
+
 	if ((ret = scripting_init()) != 0) {
 		fatUnmount(nand_vol_name);
 		exit_with_prompt(ret);
