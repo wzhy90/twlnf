@@ -63,7 +63,7 @@ static void s_deep_free() {
 	free(base);
 }
 
-int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param) {
+int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_param) {
 	// init the stack
 	stack_max_depth = 0;
 	stack_usage = 0;
@@ -106,12 +106,12 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 			}
 			if ((s.st_mode & S_IFMT) == S_IFREG) {
 				if (callback != 0) {
-					callback(fullname, p_cb_param);
+					callback(fullname, 0, p_cb_param);
 				}
 				free(fullname);
 			} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
-				if (callback == 0) {
-					iprintf("%s\n", fullname);
+				if (callback != 0) {
+					callback(fullname, 1, p_cb_param);
 				}
 				if (s_push(fullname) == 0) {
 					free(fullname);
@@ -150,7 +150,7 @@ void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
 			callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param);
 		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
-			// use INVALID_SIZE as indication
+			// use INVALID_SIZE as is_dir
 			callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param);
 		}
 	}

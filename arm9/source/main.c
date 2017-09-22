@@ -142,13 +142,30 @@ unsigned wait_keys(unsigned keys) {
 	}
 }
 
-void walk_cb_lst(const char *name, void *p_param) {
+void walk_cb_lst_file(const char *name, int is_dir, void *p_param) {
+	if (is_dir) {
+		return;
+	}
+	name += sizeof(nand_root) - 1;
 	iprintf("%s\n", name);
 	fiprintf((FILE*)p_param, "%s\n", name);
 }
 
-void walk_cb_sha1(const char *name, void *p_param) {
-	iprintf("%s", name);
+void walk_cb_lst_dir(const char *name, int is_dir, void *p_param) {
+	if (!is_dir) {
+		return;
+	}
+	name += sizeof(nand_root) - 1;
+	iprintf("%s\n", name);
+	fiprintf((FILE*)p_param, "%s\n", name);
+}
+
+void walk_cb_sha1(const char *name, int is_dir, void *p_param) {
+	if (is_dir) {
+		return;
+	}
+	const char *rname = name + sizeof(nand_root) - 1;
+	iprintf("%s", rname);
 	unsigned char digest[SHA1_LEN];
 	int sha1_ret = sha1_file(digest, name);
 	iprintf(" %d\n", sha1_ret);
@@ -158,10 +175,10 @@ void walk_cb_sha1(const char *name, void *p_param) {
 	for (unsigned i = 0; i < SHA1_LEN; ++i) {
 		fiprintf((FILE*)p_param, "%02X", digest[i]);
 	}
-	fiprintf((FILE*)p_param, " *%s\n", name);
+	fiprintf((FILE*)p_param, " *%s\n", rname);
 }
 
-void walk_cb_dump(const char *name, void *_) {
+void walk_cb_dump(const char *name, int is_dir, void *_) {
 }
 
 void menu_action(const char *name) {
@@ -222,21 +239,23 @@ void menu() {
 		} else if (keys & KEY_A) {
 			menu_action(file_list[view_pos + cur_pos].name);
 		} else if ((keys & KEY_L) && (keys & KEY_R)) {
-			iprintf("\t(A) list NAND files\n"
-				"\t(X) sha1 NAND files\n"
-				"\t(Y) walk NAND\n"
+			iprintf("\t(A) list NAND directories\n"
+				"\t(X) list NAND files\n"
+				"\t(Y) sha1 NAND files\n"
 				"\t(B) cancel\n");
 			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y);
 			if (keys & KEY_A) {
-				FILE * f = fopen("nand_files.lst", "w");
-				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst, f));
+				FILE * f = fopen("nand_dirs.lst", "w");
+				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst_dir, f));
 				fclose(f);
 			} else if (keys & KEY_X) {
+				FILE * f = fopen("nand_files.lst", "w");
+				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst_file, f));
+				fclose(f);
+			} else if (keys & KEY_Y) {
 				FILE * f = fopen("nand_files.sha1", "w");
 				iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
-			} else if (keys & KEY_Y) {
-				iprintf("walk returned %d\n", walk(nand_root, 0, 0));
 			}
 		}
 		if (needs_redraw) {
@@ -380,7 +399,7 @@ int main(int argc, const char * const argv[]) {
 				exit_with_prompt(-1);
 			}
 		}
-		// either way, we should have a valid NAND image by now
+		// either way, we should have a valid native NAND image by now
 		iprintf("mount image (A)? quit(B)?\n");
 		unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X);
 		if (keys & KEY_B) {

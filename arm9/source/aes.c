@@ -1,5 +1,6 @@
 
 #include <nds.h>
+#include <malloc.h>
 #include "aes.h"
 
 /* AES 128 ECB dug out from mbed TLS 2.5.1
@@ -32,11 +33,15 @@ DTCM_BSS static uint32_t FT0[256];
 DTCM_BSS static uint32_t FT1[256];
 DTCM_BSS static uint32_t FT2[256];
 DTCM_BSS static uint32_t FT3[256];
+
+#define NO_R_TABLES
+#ifndef NO_R_TABLES
 static unsigned char RSb[256];
 static uint32_t RT0[256];
 static uint32_t RT1[256];
 static uint32_t RT2[256];
 static uint32_t RT3[256];
+#endif
 
 static uint32_t RCON[256];
 
@@ -49,6 +54,14 @@ static uint32_t RCON[256];
 
 void aes_gen_tables(void)
 {
+#ifdef NO_R_TABLES
+	unsigned char *RSb = memalign(32, 256);
+	uint32_t *RT0 = memalign(32, 256 * sizeof(uint32_t));
+	uint32_t *RT1 = memalign(32, 256 * sizeof(uint32_t));
+	uint32_t *RT2 = memalign(32, 256 * sizeof(uint32_t));
+	uint32_t *RT3 = memalign(32, 256 * sizeof(uint32_t));
+#endif
+
 	int i, x, y, z;
 	int pow[256];
 	int log[256];
@@ -121,6 +134,13 @@ void aes_gen_tables(void)
 		RT2[i] = ROTL8(RT1[i]);
 		RT3[i] = ROTL8(RT2[i]);
 	}
+#ifdef NO_R_TABLES
+	free(RSb);
+	free(RT0);
+	free(RT1);
+	free(RT2);
+	free(RT3);
+#endif
 }
 
 // did a little counting to understand why buf is [68]
