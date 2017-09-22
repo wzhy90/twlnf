@@ -10,7 +10,7 @@ include $(DEVKITARM)/ds_rules
 export TARGET	:=	twlnf
 export TOPDIR	:=	$(CURDIR)
 
-export VERSION	:=	0.1.0
+export VERSION	:=	0.2.0
 
 .PHONY: arm7/$(TARGET).elf arm9/$(TARGET).elf
 

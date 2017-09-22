@@ -200,12 +200,12 @@ void menu() {
 	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();
-	int needs_redraw = 0;
 	while (1) {
 		swiWaitForVBlank();
 		scanKeys();
 		uint32 keys = keysDown();
 		consoleSelect(&bottomScreen);
+		int needs_redraw = 0;
 		if (keys & KEY_B) {
 			break;
 		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
@@ -221,14 +221,23 @@ void menu() {
 			needs_redraw = 1;
 		} else if (keys & KEY_A) {
 			menu_action(file_list[view_pos + cur_pos].name);
-		} else if ((keys & KEY_START) && (keys & KEY_L)) {
-			FILE * f = fopen("nand_files.lst", "w");
-			iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst, f));
-			fclose(f);
-		} else if ((keys & KEY_START) && (keys & KEY_R)) {
-			FILE * f = fopen("nand_files.sha1", "w");
-			iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
-			fclose(f);
+		} else if ((keys & KEY_L) && (keys & KEY_R)) {
+			iprintf("\t(A) list NAND files\n"
+				"\t(X) sha1 NAND files\n"
+				"\t(Y) walk NAND\n"
+				"\t(B) cancel\n");
+			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y);
+			if (keys & KEY_A) {
+				FILE * f = fopen("nand_files.lst", "w");
+				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst, f));
+				fclose(f);
+			} else if (keys & KEY_X) {
+				FILE * f = fopen("nand_files.sha1", "w");
+				iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
+				fclose(f);
+			} else if (keys & KEY_Y) {
+				iprintf("walk returned %d\n", walk(nand_root, 0, 0));
+			}
 		}
 		if (needs_redraw) {
 			consoleSelect(&topScreen);

@@ -1,4 +1,0 @@
-# should be positive
-dir_exist sys
-# should be negative
-dir_exist some dir

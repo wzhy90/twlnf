@@ -1,5 +1,6 @@
 
 #include <nds.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -129,7 +130,7 @@ static void rm(const char *name) {
 	if (r == 0) {
 		iprintf("removed: %s\n", name);
 	} else {
-		iprintf("removed() returned %d for %s\n", r, name);
+		iprintf("remove() returned %d for %s, errno: %d\n", r, name, errno);
 	}
 }
 
@@ -154,6 +155,7 @@ static int cmd_rm(const char * arg) {
 				sniprintf(name_buf1, LINE_BUF_LEN, "%s%s", name_buf0, de->d_name);
 				struct stat s;
 				if (stat(name_buf1, &s) != 0) {
+					iprintf("weird stat failure, errno: %d\n", errno);
 					continue;
 				}
 				if ((s.st_mode & S_IFMT) == S_IFREG) {
@@ -178,6 +180,23 @@ static int cmd_rm(const char * arg) {
 	// it never returns error
 	return NO_ERR;
 }
+
+/*
+rmdir() returns errno 88(ENOSYS, function not implemented)
+then I found out unlink works on directory, and remove works too
+so no reason for a separate rmdir now
+static int cmd_rmdir(const char *arg) {
+	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, arg);
+	convert_backslash(name_buf0);
+	int r = unlink(name_buf0);
+	if (r == 0) {
+		iprintf("unlink succeed: %s\n", name_buf0);
+	} else {
+		iprintf("unlink() returned %d for: %s, errno: %d\n", r, name_buf0, errno);
+	}
+	return NO_ERR;
+}
+*/
 
 static int execute_cmd(const char * line, unsigned len, int dry_run) {
 	unsigned cmd;
@@ -234,6 +253,73 @@ int sha1_file(void *digest, const char *name) {
 	return size;
 }
 
+int validate_path(const char *root, const char *name, unsigned fmt) {
+	// like a mkdir -p dry run
+	unsigned root_len = root == 0 ? 0 : strlen(root);
+	unsigned full_len = root == 0 ? strlen(name) : 0;
+	if (root == 0) {
+		strcpy(name_buf0, name);
+	} else {
+		full_len = sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", root, name);
+	}
+	struct stat s;
+	if (stat(name_buf0, &s) == 0) {
+		// target already exist
+		if ((s.st_mode & S_IFMT) == fmt) {
+			return 0;
+		} else {
+			// can't create a file if a dir with the same name already exist and vice versa
+			return -1;
+		}
+	}
+	// now check all ancestor available as S_IFDIR
+	// since we have dry run mode, we can't just mkdir and check errno
+	// recursive seems risky so a loop here
+	for (unsigned i = root_len; i < full_len; ++i) {
+		if (name_buf0[i] != '/') {
+			continue;
+		}
+		strncpy(name_buf1, name_buf0, i);
+		name_buf1[i] = 0;
+		if (stat(name_buf1, &s) != 0) {
+			// any ancestor doesn't exist, it is valid
+			return 0;
+		} else if ((s.st_mode & S_IFMT) != S_IFDIR) {
+			// any ancestor exist but not dir, it is invalid
+			return -1;
+		}
+	}
+	return 0;
+}
+
+void mkdir_parent(const char *root, const char *name) {
+	// this shares a lot of code with validate_path
+	// I thought about combine them with a dry_run flag
+	// but decided to write them separated instead
+	unsigned root_len = root == 0 ? 0 : strlen(root);
+	unsigned full_len = root == 0 ? strlen(name) : 0;
+	if (root == 0) {
+		strcpy(name_buf0, name);
+	} else {
+		full_len = sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", root, name);
+	}
+	struct stat s;
+	for (unsigned i = root_len; i < full_len; ++i) {
+		if (name_buf0[i] != '/') {
+			continue;
+		}
+		strncpy(name_buf1, name_buf0, i);
+		name_buf1[i] = 0;
+		if (stat(name_buf1, &s) != 0) {
+			// any ancestor doesn't exist, create it
+			if (mkdir(name_buf1, S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
+				iprintf("mkdir fail(%d): %s\n", errno, name_buf1);
+			}
+		}
+	}
+	return;
+}
+
 int cp(const char *from, const char *to) {
 	FILE *f = fopen(from, "r");
 	if (f == 0) {
@@ -272,6 +358,7 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 	unsigned size = 0;
 	unsigned missing = 0;
 	unsigned wrong = 0;
+	unsigned invalid = 0;
 	unsigned check = 0;
 	int ret = 0;
 	while (fgets(line_buf, LINE_BUF_LEN, f) != 0) {
@@ -314,23 +401,31 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 			// hash
 			unsigned char digest[SHA1_LEN];
 			if (dry_run) {
-				// TODO: maybe a "files on NAND are identical" test
-				int sha1_ret = sha1_file(digest, name);
-				if (sha1_ret == -1) {
-					iprintf(" missing\n");
-					++missing;
+				// make sure the target path is valid
+				if (validate_path(nand_root, name, S_IFREG) != 0) {
+					iprintf("invalid target path: %s%s\n", nand_root, name);
+					++invalid;
 				} else {
-					size += sha1_ret;
-					if (memcmp(line, digest, SHA1_LEN)) {
-						iprintf(" wrong\n");
-						++wrong;
+					// TODO: maybe a "files on NAND are identical" test
+					int sha1_ret = sha1_file(digest, name);
+					if (sha1_ret == -1) {
+						iprintf(" missing\n");
+						++missing;
 					} else {
-						iprintf(" OK\n");
-						++check;
+						size += sha1_ret;
+						if (memcmp(line, digest, SHA1_LEN)) {
+							iprintf(" wrong\n");
+							++wrong;
+						} else {
+							iprintf(" OK\n");
+							++check;
+						}
 					}
 				}
 			} else {
-				sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, name);
+				mkdir_parent(nand_root, name);
+				// name_buf0 should have been prepared by mkdir_parent
+				// sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, name);
 				int cp_ret = cp(name, name_buf0);
 				if (cp_ret != 0) {
 					iprintf(" failed to copy, cp() returned %d, you may panic now\n", cp_ret);
@@ -359,10 +454,13 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 			iprintf("%u wrong, %u missing\n", wrong, missing);
 		}
 		if (irregular > 0) {
-			iprintf("%u irregular lines\n", irregular);
+			iprintf("%u irregular line(s)\n", irregular);
+		}
+		if (invalid > 0) {
+			iprintf("%u invalid target path(s)\n", invalid);
 		}
 		*p_size = size;
-		return ret != 0 ? ret : irregular + missing + wrong;
+		return ret != 0 ? ret : irregular + invalid + missing + wrong;
 	} else {
 		return ret;
 	}

@@ -2,11 +2,13 @@
 // a POSIX directory tree walk
 // walk down subdirectories and calls callback on regular files, skip all others
 
+#include <stdio.h>
+#include <errno.h>
 #include <malloc.h>
+#include <inttypes.h>
+#include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <stdio.h>
-#include <string.h>
 #include "walk.h"
 
 #define NAME_BUF_LEN 0x100
@@ -19,6 +21,7 @@ static unsigned head;
 
 static unsigned stack_usage;
 static unsigned stack_max_depth;
+static unsigned longest_path;
 
 // I suppose no need for a linked stack
 static void s_alloc() {
@@ -64,6 +67,7 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 	// init the stack
 	stack_max_depth = 0;
 	stack_usage = 0;
+	longest_path = 0;
 	s_alloc();
 	char *p = (char*)malloc(strlen(dir) + 1);
 	if (p == 0) {
@@ -84,7 +88,11 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 			if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 				continue;
 			}
-			char *fullname = (char*)malloc(len_parent + 1 + strlen(de->d_name) + 1);
+			unsigned full_len = len_parent + 1 + strlen(de->d_name);
+			if (full_len > longest_path) {
+				longest_path = full_len;
+			}
+			char *fullname = (char*)malloc(full_len + 1);
 			if (fullname == 0) {
 				s_deep_free();
 				return -1;
@@ -92,19 +100,26 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 			siprintf(fullname, p[strlen(p) - 1] == '/' ? "%s%s" : "%s/%s", p, de->d_name);
 			struct stat s;
 			if (stat(fullname, &s) != 0) {
+				iprintf("weird stat failure, errno: %d\n", errno);
 				free(fullname);
 				continue;
 			}
-			if (s.st_mode & S_IFREG) {
-				callback(fullname, p_cb_param);
+			if ((s.st_mode & S_IFMT) == S_IFREG) {
+				if (callback != 0) {
+					callback(fullname, p_cb_param);
+				}
 				free(fullname);
-			} else if (s.st_mode & S_IFDIR) {
+			} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
+				if (callback == 0) {
+					iprintf("%s\n", fullname);
+				}
 				if (s_push(fullname) == 0) {
 					free(fullname);
 					s_deep_free();
 					return -2;
 				}
 			} else {
+				iprintf("weird type 0x%08" PRIx32 ": %s\n", s.st_mode & S_IFMT, fullname);
 				free(fullname);
 			}
 		}
@@ -112,7 +127,7 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 		free(p);
 	}
 	s_free();
-	iprintf("stack stats: %u/%u\n", stack_max_depth, stack_usage);
+	iprintf("walk stats: %u, %u, %u\n", stack_max_depth, stack_usage, longest_path);
 	return 0;
 }
 
@@ -129,6 +144,7 @@ void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t
 		sniprintf(name_buf, NAME_BUF_LEN, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
 		struct stat s;
 		if (stat(name_buf, &s) != 0) {
+			iprintf("weird stat failure, errno: %d\n", errno);
 			continue;
 		}
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
