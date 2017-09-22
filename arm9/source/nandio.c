@@ -47,12 +47,13 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 		}
 		return true;
 	} else {
+		iprintf("NANDIO: read error\n");
 		return false;
 	}
 }
 
 bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
-	iprintf("R: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
+	// iprintf("R: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
 	while (len >= CRYPT_BUF_LEN) {
 		if (!read_sectors(offset, CRYPT_BUF_LEN, buffer)) {
 			return false;
@@ -68,7 +69,36 @@ bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 	}
 }
 
+static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
+	dsi_nand_crypt(crypt_buf, buffer, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
+	// if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
+	// if (fwrite(crypt_buf, SECTOR_SIZE, len, f) == len) {
+	if(nand_WriteSectors(start, len, crypt_buf)){
+		return true;
+	} else {
+		iprintf("NANDIO: write error\n");
+		return false;
+	}
+}
+
 bool nandio_write_sectors(sec_t offset, sec_t len, const void *buffer) {
+	// iprintf("W: %u(0x%08x), %u\n", (unsigned)offset, (unsigned)offset, (unsigned)len);
+	while (len >= CRYPT_BUF_LEN) {
+		if (!write_sectors(offset, CRYPT_BUF_LEN, buffer)) {
+			return false;
+		}
+		offset += CRYPT_BUF_LEN;
+		len -= CRYPT_BUF_LEN;
+		buffer = ((u8*)buffer) + SECTOR_SIZE * CRYPT_BUF_LEN;
+	}
+	if (len > 0) {
+		return write_sectors(offset, len, buffer);
+	} else {
+		return true;
+	}
+}
+
+bool nandio_write_sectors_dummy(sec_t offset, sec_t len, const void *buffer) {
 	return false;
 }
 
@@ -83,8 +113,19 @@ bool nandio_shutdown() {
 }
 
 const DISC_INTERFACE io_dsi_nand = {
-	('N' << 24) | ('A' << 16) | ('N' << 8) | 'D',
+	('N' << 24) | ('D' << 16) | ('R' << 8) | 'O',
 	FEATURE_MEDIUM_CANREAD,
+	nandio_startup,
+	nandio_is_inserted,
+	nandio_read_sectors,
+	nandio_write_sectors_dummy,
+	nandio_clear_status,
+	nandio_shutdown
+};
+
+const DISC_INTERFACE io_dsi_nand_rw = {
+	('N' << 24) | ('A' << 16) | ('N' << 8) | 'D',
+	FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE,
 	nandio_startup,
 	nandio_is_inserted,
 	nandio_read_sectors,

@@ -68,15 +68,30 @@ static inline void xor_128(u32 *x, const u32 *a, const u32 *b){
 }
 
 static inline void add_128(u32 *a, const u32 *b){
-	int carry = 0;
-	for (int i = 0; i < 4; ++i) {
-		a[i] += b[i];
-		carry = a[i] < b[i];
-		for (int j = i + 1; j < 4 && carry; ++j) {
-			a[j] += 1;
-			carry = a[j] == 0;
-		}
-	}
+	unsigned c1, c2, c3; // carry
+	// round 1
+	a[3] += b[3];
+	a[2] += b[2];
+	a[1] += b[1];
+	a[0] += b[0];
+	// carry
+	c3 = a[2] < b[2];
+	c2 = a[1] < b[1];
+	c1 = a[0] < b[0];
+	// round 2
+	a[3] += c3;
+	a[2] += c2;
+	a[1] += c1;
+	// carry
+	c3 = a[2] < c2;
+	c2 = a[1] < c1;
+	// round 3
+	a[3] += c3;
+	a[2] += c2;
+	// carry
+	c3 = a[2] < c2;
+	// round 4
+	a[3] += c3;
 }
 
 static inline void add_128_32(u32 *a, u32 b){
