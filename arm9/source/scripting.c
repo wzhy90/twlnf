@@ -15,7 +15,8 @@ extern swiSHA1context_t sha1ctx;
 
 #define LINE_BUF_LEN 0x100
 static char line_buf[LINE_BUF_LEN];
-static char name_buf[LINE_BUF_LEN];
+static char name_buf0[LINE_BUF_LEN];
+static char name_buf1[LINE_BUF_LEN];
 
 #define FILE_BUF_LEN (128 << 10)
 static u8* file_buf = 0;
@@ -112,9 +113,9 @@ enum {
 static int cmd_exist(const char * arg, unsigned fmt) {
 	struct stat s;
 	iprintf("%s", arg);
-	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, arg);
-	convert_backslash(name_buf);
-	if (stat(name_buf, &s) == 0 && (s.st_mode & S_IFMT) == fmt) {
+	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, arg);
+	convert_backslash(name_buf0);
+	if (stat(name_buf0, &s) == 0 && (s.st_mode & S_IFMT) == fmt) {
 		iprintf(" exist\n");
 		return NO_ERR;
 	} else {
@@ -133,14 +134,14 @@ static void rm(const char *name) {
 }
 
 static int cmd_rm(const char * arg) {
-	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, arg);
-	convert_backslash(name_buf);
-	unsigned len = strlen(name_buf);
-	if (len > 2 && name_buf[len - 1] == '*' && name_buf[len - 2] == '/') {
+	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, arg);
+	convert_backslash(name_buf0);
+	unsigned len = strlen(name_buf0);
+	if (len > 2 && name_buf0[len - 1] == '*' && name_buf0[len - 2] == '/') {
 		// wildcard
-		name_buf[len - 1] = 0;
+		name_buf0[len - 1] = 0;
 		while (true) {
-			DIR *d = opendir(name_buf);
+			DIR *d = opendir(name_buf0);
 			if (d == 0) {
 				break;
 			}
@@ -150,16 +151,14 @@ static int cmd_rm(const char * arg) {
 				if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 					continue;
 				}
-				// BEWARE: line_buf destroyed
-				// maybe I should define a secondary name_buf
-				sniprintf(line_buf, LINE_BUF_LEN, "%s%s", name_buf, de->d_name);
+				sniprintf(name_buf1, LINE_BUF_LEN, "%s%s", name_buf0, de->d_name);
 				struct stat s;
-				if (stat(line_buf, &s) != 0) {
+				if (stat(name_buf1, &s) != 0) {
 					continue;
 				}
 				if ((s.st_mode & S_IFMT) == S_IFREG) {
 					file_found = 1;
-					rm(line_buf);
+					rm(name_buf1);
 					// we break the loop here since behavior of readdir() becomes undefined in this situation
 					// this is also why listdir is not used
 					// http://pubs.opengroup.org/onlinepubs/007908799/xsh/readdir.html
@@ -174,7 +173,7 @@ static int cmd_rm(const char * arg) {
 		}
 	} else {
 		// single file
-		rm(name_buf);
+		rm(name_buf0);
 	}
 	// it never returns error
 	return NO_ERR;
@@ -267,8 +266,8 @@ int cp(const char *from, const char *to) {
 
 // this is evolved from parse_sha1sum so the structure is a bit strange
 int scripting(const char *scriptname, int dry_run, unsigned *p_size){
-	sniprintf(name_buf, LINE_BUF_LEN, "%s%s", list_dir, scriptname);
-	FILE *f = fopen(name_buf, "r");
+	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", list_dir, scriptname);
+	FILE *f = fopen(name_buf0, "r");
 	unsigned irregular = 0;
 	unsigned size = 0;
 	unsigned missing = 0;
@@ -331,15 +330,15 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 					}
 				}
 			} else {
-				sniprintf(name_buf, LINE_BUF_LEN, "%s%s", nand_root, name);
-				int cp_ret = cp(name, name_buf);
+				sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, name);
+				int cp_ret = cp(name, name_buf0);
 				if (cp_ret != 0) {
 					iprintf(" failed to copy, cp() returned %d, you may panic now\n", cp_ret);
 					ret = ERR_CP_FAIL;
 					break;
 				}
 				iprintf(" copied to NAND");
-				if (sha1_file(digest, name_buf) == -1) {
+				if (sha1_file(digest, name_buf0) == -1) {
 					iprintf(" but missing, weird\n");
 					ret = ERR_WEIRD;
 					break;

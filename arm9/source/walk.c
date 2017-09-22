@@ -14,8 +14,11 @@ static char name_buf[NAME_BUF_LEN];
 
 #define STACK_DEPTH 0x400
 
-static void **base = 0;
-static unsigned head = 0;
+static void **base;
+static unsigned head;
+
+static unsigned stack_usage;
+static unsigned stack_max_depth;
 
 // I suppose no need for a linked stack
 static void s_alloc() {
@@ -28,8 +31,12 @@ static void s_free() {
 }
 
 static int s_push(void *p) {
+	++stack_usage;
 	if (head < STACK_DEPTH) {
 		base[head++] = p;
+		if (head > stack_max_depth) {
+			stack_max_depth = head;
+		}
 		return 1;
 	} else {
 		iprintf("stack limit exceed\n");
@@ -55,6 +62,8 @@ static void s_deep_free() {
 
 int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param) {
 	// init the stack
+	stack_max_depth = 0;
+	stack_usage = 0;
 	s_alloc();
 	char *p = (char*)malloc(strlen(dir) + 1);
 	if (p == 0) {
@@ -103,6 +112,7 @@ int walk(const char *dir, void (*callback)(const char*, void*), void *p_cb_param
 		free(p);
 	}
 	s_free();
+	iprintf("stack stats: %u/%u\n", stack_max_depth, stack_usage);
 	return 0;
 }
 
