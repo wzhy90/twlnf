@@ -15,3 +15,5 @@ int mount(int direct);
 int backup();
 
 int restore();
+
+void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid);

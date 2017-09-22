@@ -275,37 +275,47 @@ int main(int argc, const char * const argv[]) {
 
 	consoleSelect(&bottomScreen);
 
-	int mode = MODE_IMAGE;
-
-	if (argc > 1) {
-		for (unsigned i = 1; i < argc; ++i) {
-			if (!strcmp(argv[i], "--image-test")) {
-				iprintf("image test mode\n");
-				mode = MODE_IMAGE_TEST;
-			}
-			else if (!strcmp(argv[i], "--direct-test")) {
-				iprintf("direct test mode\n");
-				mode = MODE_DIRECT_TEST;
-			}
-		}
-	}
-
 	u32 bat_reg = getBatteryLevel();
 	if (!(bat_reg & 1)) {
 		iprintf("battery level too low: %08" PRIx32 "\n", bat_reg);
 		exit_with_prompt(0);
 	}
 
-	iprintf("FAT init...");
+	int mode = MODE_IMAGE;
 
-	if (!fatInitDefault()) {
-		iprintf("\x1b[3D failed!\n");
-		exit_with_prompt(-1);
-	} else {
-		iprintf("\x1b[3D succeed\n");
+	if (argc > 1) {
+		if (argc == 2 && !strcmp(argv[1], "image-test")) {
+			iprintf("image test mode\n");
+			mode = MODE_IMAGE_TEST;
+		} else if (argc == 2 && !strcmp(argv[1], "direct-test")) {
+			iprintf("direct test mode\n");
+			mode = MODE_DIRECT_TEST;
+		} else if (argc == 5 && !strcmp(argv[1], "aes-test")) {
+			iprintf("AES test default\n");
+			aes_test(atoi(argv[2]), argv[3], argv[4]);
+			setCpuClock(false);
+			iprintf("AES test clock low\n");
+			aes_test(atoi(argv[2]), argv[3], argv[4]);
+			setCpuClock(true);
+			iprintf("AES test clock true\n");
+			aes_test(atoi(argv[2]), argv[3], argv[4]);
+			exit_with_prompt(0);
+		}
 	}
 
 	int ret;
+
+	iprintf("FAT init...");
+	cpuStartTiming(0);
+	ret = fatInitDefault();
+	u32 td = timerTicks2usec(cpuEndTiming());
+	if (!ret) {
+		iprintf("\x1b[3D failed!\n");
+		exit_with_prompt(-1);
+	} else {
+		iprintf("\x1b[3D succeed, %" PRIu32 "us\n", td);
+	}
+
 	if (mode == MODE_IMAGE_TEST) {
 		if ((ret = test_image_against_footer()) != 0) {
 			exit_with_prompt(ret);

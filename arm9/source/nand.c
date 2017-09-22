@@ -89,10 +89,10 @@ int get_ids() {
 
 	char *p_console_id_file = 0;
 	size_t console_id_file_size;
-	bool console_id_from_file = false;
-	if (load_file((void**)&p_console_id_file, &console_id_file_size, "console_id.txt", false, 0) == 0) {
+	int console_id_from_file = 0;
+	if (load_file((void**)&p_console_id_file, &console_id_file_size, "console_id.txt", 1, 0) == 0) {
 		if (console_id_file_size >= 16 && hex2bytes(console_id, 8, p_console_id_file) == 0) {
-			console_id_from_file = true;
+			console_id_from_file = 1;
 		}
 		free(p_console_id_file);
 	}
@@ -311,5 +311,21 @@ int backup() {
 int restore() {
 	iprintf("%s: not implemented\n", __FUNCTION__);
 	return -1;
+}
+
+void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
+	hex2bytes(console_id, 8, s_console_id);
+	hex2bytes(emmc_cid, 16, s_emmc_cid);
+	dsi_nand_crypt_init(console_id, emmc_cid, 0);
+
+	cpuStartTiming(0);
+	for (int i = 0; i < loops; ++i) {
+		dsi_nand_crypt((u8*)dump_buf, (u8*)dump_buf,
+			i * (DUMP_BUF_SIZE / AES_BLOCK_SIZE), DUMP_BUF_SIZE / AES_BLOCK_SIZE);
+	}
+	u32 td = timerTicks2usec(cpuEndTiming());
+
+	printf("%" PRIu32 " us %u KB\n%.2f KB/s\n", td, (DUMP_BUF_SIZE * loops) >> 10,
+		1000.0f * DUMP_BUF_SIZE * loops / td);
 }
 

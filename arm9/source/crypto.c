@@ -147,7 +147,11 @@ static void dsi_make_key(u32 *key, u32 console_id_l, u32 console_id_h, int is3DS
 	byte_reverse_16_ip((u8*)key);
 }
 
-static u32 rk[RK_LEN];
+#ifdef _MSC_VER
+#define DTCM_BSS
+#endif
+
+DTCM_BSS static u32 rk[RK_LEN];
 static u32 ctr_base[4];
 
 int tables_generated = 0;
@@ -181,14 +185,15 @@ void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 // crypt one AES block, in/out must be aligned to 32 bits
 // offset as block offset
 void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
-	u32 buf[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
-	add_128_32(buf, offset);
-	byte_reverse_16_ip((u8*)buf);
+	u32 buf0[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
+	u32 buf1[4];
+	add_128_32(buf0, offset);
+	byte_reverse_16((u8*)buf1, (u8*)buf0);
 	// iprintf("AES CTR:\n");
 	// print_bytes(buf, 16);
-	aes_encrypt_128(rk, (u8*)buf, (u8*)buf);
-	byte_reverse_16_ip((u8*)buf);
-	xor_128((u32*)out, (u32*)in, buf);
+	aes_encrypt_128(rk, (u8*)buf1, (u8*)buf1);
+	byte_reverse_16((u8*)buf0, (u8*)buf1);
+	xor_128((u32*)out, (u32*)in, buf0);
 }
 
 void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
