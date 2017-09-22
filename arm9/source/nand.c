@@ -230,17 +230,13 @@ int mount(int direct) {
 	}
 	int is3DS;
 	test_sector0(&is3DS);
-	if (is3DS) {
-		iprintf("no point use this on 3DS\n");
-		return -2;
-	}
 	mbr_t *mbr = (mbr_t*)sector_buf;
 	int mnt_ret;
 	if (direct) {
-		nandio_set_fat_sig_fix(mbr->partitions[0].offset);
+		nandio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
 		mnt_ret = fatMount(nand_vol_name, &io_dsi_nand, mbr->partitions[0].offset, 4, 64);
 	} else {
-		imgio_set_fat_sig_fix(mbr->partitions[0].offset);
+		imgio_set_fat_sig_fix(is3DS ? 0 : mbr->partitions[0].offset);
 		mnt_ret = fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64);
 	}
 	if (mnt_ret == 0) {

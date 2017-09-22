@@ -98,10 +98,6 @@ bool nandio_write_sectors(sec_t offset, sec_t len, const void *buffer) {
 	}
 }
 
-bool nandio_write_sectors_dummy(sec_t offset, sec_t len, const void *buffer) {
-	return false;
-}
-
 bool nandio_clear_status() {
 	return true;
 }
@@ -113,17 +109,6 @@ bool nandio_shutdown() {
 }
 
 const DISC_INTERFACE io_dsi_nand = {
-	('N' << 24) | ('D' << 16) | ('R' << 8) | 'O',
-	FEATURE_MEDIUM_CANREAD,
-	nandio_startup,
-	nandio_is_inserted,
-	nandio_read_sectors,
-	nandio_write_sectors_dummy,
-	nandio_clear_status,
-	nandio_shutdown
-};
-
-const DISC_INTERFACE io_dsi_nand_rw = {
 	('N' << 24) | ('A' << 16) | ('N' << 8) | 'D',
 	FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE,
 	nandio_startup,

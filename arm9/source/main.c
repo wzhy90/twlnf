@@ -26,6 +26,7 @@ const char nand_root[] = "NAND:/";
 #define CONSOLE_HEIGHT	23
 
 #define Cls "\x1b[2J"
+// appearantly Rst not working
 #define Rst "\x1b[0m"
 // unfortunately background colors are not working
 #define Blk "\x1b[40m"
@@ -87,7 +88,7 @@ void draw_file_list() {
 			iprintf("\n");
 		}
 	}
-	iprintf(Red "%s\n" Rst, footer);
+	iprintf(Red "%s\n" Wht, footer);
 }
 
 void menu_move(int move) {
@@ -236,6 +237,30 @@ void menu() {
 	}
 }
 
+/* different modes:
+	image mode, mount a valid native image
+		if such image doesn't exist, prompt to create one
+		test against NAND sector 0 and native IDs
+		(TODO) update nand.sha1 upon quiting
+	(DANGEROUS) direct mode, mounts real NAND
+		(TODO) if any writes failed, prompt to restore a image as rescue
+			so a valid native NAND image is required to enter direct mode
+				valid: contains valid no$gba footer which can decrypt itself
+				native: IDs identical to running hardware
+	(DEBUG) image test mode, mount a valid image
+		but not necessarily native
+		this is for testing a foreign NAND image
+	(DEBUG) direct test mode
+		doesn't require a NAND image as rescue
+		this is for testing on a B9S 3DS in TWL mode
+*/
+enum {
+	MODE_IMAGE,
+	MODE_DIRECT,
+	MODE_IMAGE_TEST,
+	MODE_DIRECT_TEST
+};
+
 int main(int argc, const char * const argv[]) {
 	defaultExceptionHandler();
 
@@ -250,34 +275,26 @@ int main(int argc, const char * const argv[]) {
 
 	consoleSelect(&bottomScreen);
 
-	/* 3 modes:
-		0, (RO) direct mode, mounts real NAND
-			(TODO) if any writes failed, prompt to restore a image
-				so a valid native NAND image is required to enter direct mode
-					valid: contains valid no$gba footer which can decrypt itself
-					native: IDs identical to running hardware
-		1, image mode, mount a valid native image
-			if such image doesn't exist, prompt to create one
-			test against NAND sector 0 and native IDs
-			(TODO) update nand.sha1 upon quiting
-		2, (DEBUG) image test mode, mount a valid image
-			but not necessarily native
-			this is for testing a foreign NAND image
-	*/
-
-	int mode = 0;
+	int mode = MODE_IMAGE;
 
 	if (argc > 1) {
 		for (unsigned i = 1; i < argc; ++i) {
-			if (!strcmp(argv[i], "--img-test")) {
+			if (!strcmp(argv[i], "--image-test")) {
 				iprintf("image test mode\n");
-				mode = 2;
+				mode = MODE_IMAGE_TEST;
+			}
+			else if (!strcmp(argv[i], "--direct-test")) {
+				iprintf("direct test mode\n");
+				mode = MODE_DIRECT_TEST;
 			}
 		}
 	}
 
 	u32 bat_reg = getBatteryLevel();
-	iprintf("battery: %08" PRIx32 "\n", bat_reg);
+	if (!(bat_reg & 1)) {
+		iprintf("battery level too low: %08" PRIx32 "\n", bat_reg);
+		exit_with_prompt(0);
+	}
 
 	iprintf("FAT init...");
 
@@ -289,12 +306,34 @@ int main(int argc, const char * const argv[]) {
 	}
 
 	int ret;
-	if (mode == 2) {
+	if (mode == MODE_IMAGE_TEST) {
 		if ((ret = test_image_against_footer()) != 0) {
 			exit_with_prompt(ret);
 		}
 		if ((ret = mount(0)) != 0) {
 			exit_with_prompt(ret);
+		}
+	}else if(mode == MODE_DIRECT_TEST){
+		if ((ret = get_ids()) != 0) {
+			exit_with_prompt(ret);
+		}
+		int is3DS;
+		ret = test_ids_against_nand(&is3DS);
+		if (!is3DS) {
+			iprintf("you should NOT use direct test mode in DSi\n");
+			exit_with_prompt(0);
+		}
+		if (ret != 0) {
+			iprintf("most likely Console ID is wrong\n");
+			exit_with_prompt(ret);
+		}
+		iprintf(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
+		if (wait_keys(KEY_A | KEY_B) & KEY_A) {
+			if ((ret = mount(1)) != 0) {
+				exit_with_prompt(ret);
+			}
+		} else {
+			return 0;
 		}
 	}else{
 		if ((ret = get_ids()) != 0) {
@@ -323,13 +362,17 @@ int main(int argc, const char * const argv[]) {
 			}
 		}
 		// either way, we should have a valid NAND image by now
-		iprintf("image mode(A) or direct mode(X)?\n");
-		if (wait_keys(KEY_A | KEY_X) & KEY_X) {
-			mode = 0;
-		} else {
-			mode = 1;
+		iprintf("mount image (A)? quit(B)?\n");
+		unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X);
+		if (keys & KEY_B) {
+			return 0;
+		} else if(keys & KEY_A){
+			mode = MODE_IMAGE;
+		} else if (keys & KEY_X) {
+			mode = MODE_DIRECT;
+			iprintf(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
 		}
-		if((ret = mount(mode == 0 ? 1 : 0)) != 0) {
+		if((ret = mount(mode ==  MODE_DIRECT ? 1 : 0)) != 0) {
 			exit_with_prompt(ret);
 		}
 	}

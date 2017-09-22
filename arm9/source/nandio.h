@@ -5,6 +5,4 @@
 
 void nandio_set_fat_sig_fix(u32 offset);
 
-extern const DISC_INTERFACE io_dsi_nand_rw;
-
 extern const DISC_INTERFACE io_dsi_nand;
