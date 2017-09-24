@@ -1,6 +1,6 @@
 
 #include <nds.h>
-#include <stdio.h>
+// #include <stdio.h>
 #include "aes.h"
 #include "crypto.h"
 #include "utils.h"

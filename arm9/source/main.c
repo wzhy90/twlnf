@@ -7,13 +7,14 @@
 #include "walk.h"
 #include "nand.h"
 #include "scripting.h"
+#include "term256ext.h"
 
 #define SHA1_LEN 20
 
 #define RESERVE_FREE (5 * 1024 * 1024)
 
-PrintConsole topScreen;
-PrintConsole bottomScreen;
+term_t t0;
+term_t t1;
 
 extern const char nand_img_name[];
 
@@ -21,9 +22,6 @@ unsigned executions = 0;
 
 const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
-
-#define CONSOLE_WIDTH	32
-#define CONSOLE_HEIGHT	23
 
 #define Cls "\x1b[2J"
 // appearantly Rst not working
@@ -43,18 +41,21 @@ typedef struct {
 	size_t size;
 }file_list_item_t;
 
-#define FILE_LIST_MAX 0x100
+#define FILE_LIST_LEN 0x100
 
 const char list_dir[] = "scripts/";
-const char footer[] = "(A)select (B)quit";
-file_list_item_t file_list[FILE_LIST_MAX];
+const char footer[] = "(A)select (B)quit (START)menu";
+file_list_item_t file_list[FILE_LIST_LEN];
 unsigned file_list_len;
 unsigned view_pos;
 unsigned cur_pos;
 
-#define VIEW_HEIGHT (CONSOLE_HEIGHT - 2)
+#define VIEW_HEIGHT (TERM_HEIGHT - 2)
 
 void file_list_add(const char *name, size_t size, void *_) {
+	if (file_list_len == FILE_LIST_LEN) {
+		return;
+	}
 	if (size == INVALID_SIZE) {
 		// filter out directory
 		return;
@@ -77,18 +78,18 @@ void file_list_add(const char *name, size_t size, void *_) {
 
 void draw_file_list() {
 	// TODO: right align position
-	iprintf(Cls Red "%s %u/%u\n", list_dir, view_pos + cur_pos + 1, file_list_len);
+	iprtf(Cls Red "%s %u/%u\n", list_dir, view_pos + cur_pos + 1, file_list_len);
 	for (unsigned i = 0; i < VIEW_HEIGHT; ++i) {
 		if (view_pos + i < file_list_len) {
-			iprintf(i == cur_pos ? Grn : Wht);
+			iprtf(i == cur_pos ? Grn : Wht);
 			file_list_item_t *item = &file_list[view_pos + i];
 			// TODO: right align size
-			iprintf("%s %u\n", item->name, item->size);
+			iprtf("%s %u\n", item->name, item->size);
 		} else {
-			iprintf("\n");
+			prt(" \n");
 		}
 	}
-	iprintf(Red "%s\n" Wht, footer);
+	iprtf(Red "%s\n" Wht, footer);
 }
 
 void menu_move(int move) {
@@ -122,7 +123,7 @@ void menu_move(int move) {
 }
 
 void exit_with_prompt(int exit_code) {
-	iprintf("press A to exit...");
+	prt("press A to exit...");
 	while (1) {
 		swiWaitForVBlank();
 		scanKeys();
@@ -147,7 +148,7 @@ void walk_cb_lst_file(const char *name, int is_dir, void *p_param) {
 		return;
 	}
 	name += sizeof(nand_root) - 1;
-	iprintf("%s\n", name);
+	iprtf("%s\n", name);
 	fiprintf((FILE*)p_param, "%s\n", name);
 }
 
@@ -156,7 +157,7 @@ void walk_cb_lst_dir(const char *name, int is_dir, void *p_param) {
 		return;
 	}
 	name += sizeof(nand_root) - 1;
-	iprintf("%s\n", name);
+	iprtf("%s\n", name);
 	fiprintf((FILE*)p_param, "%s\n", name);
 }
 
@@ -165,10 +166,10 @@ void walk_cb_sha1(const char *name, int is_dir, void *p_param) {
 		return;
 	}
 	const char *rname = name + sizeof(nand_root) - 1;
-	iprintf("%s", rname);
+	iprtf("%s", rname);
 	unsigned char digest[SHA1_LEN];
 	int sha1_ret = sha1_file(digest, name);
-	iprintf(" %d\n", sha1_ret);
+	iprtf(" %d\n", sha1_ret);
 	if (sha1_ret < 0) {
 		return;
 	}
@@ -182,24 +183,24 @@ void walk_cb_dump(const char *name, int is_dir, void *_) {
 }
 
 void menu_action(const char *name) {
-	iprintf("dry run: %s\n", name);
+	iprtf("dry run: %s\n", name);
 	unsigned size;
 	// dry run
 	int ret = scripting(name, 1, &size);
-	iprintf("dry run returned %d\n", ret);
+	iprtf("dry run returned %d\n", ret);
 	if (ret != 0) {
 		return;
 	}
 	if (df(nand_root, 0) < size + RESERVE_FREE) {
-		iprintf("insufficient NAND space\n");
+		prt("insufficient NAND space\n");
 		return;
 	}
-	iprintf("execute? Yes(A)/No(B)\n");
+	prt("execute? Yes(A)/No(B)\n");
 	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
 		ret = scripting(name, 0, 0);
 		// TODO: some scripts might not induce writes
 		++executions;
-		iprintf("execution returned %d\n", ret);
+		iprtf("execution returned %d\n", ret);
 		// maybe we should prompt to restore a NAND image
 	}
 }
@@ -209,11 +210,11 @@ void menu() {
 	file_list_len = 0;
 	listdir(list_dir, 0, file_list_add, 0);
 	if (file_list_len == 0) {
-		iprintf("no script in %s\n", list_dir);
+		iprtf("no script in %s\n", list_dir);
 		exit_with_prompt(-1);
 	}
 	// init menu
-	consoleSelect(&topScreen);
+	select_term(&t1);
 	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();
@@ -221,7 +222,7 @@ void menu() {
 		swiWaitForVBlank();
 		scanKeys();
 		uint32 keys = keysDown();
-		consoleSelect(&bottomScreen);
+		select_term(&t0);
 		int needs_redraw = 0;
 		if (keys & KEY_B) {
 			break;
@@ -238,28 +239,28 @@ void menu() {
 			needs_redraw = 1;
 		} else if (keys & KEY_A) {
 			menu_action(file_list[view_pos + cur_pos].name);
-		} else if ((keys & KEY_L) && (keys & KEY_R)) {
-			iprintf("\t(A) list NAND directories\n"
+		} else if ((keys & KEY_START)) {
+			prt("\t(A) list NAND directories\n"
 				"\t(X) list NAND files\n"
 				"\t(Y) sha1 NAND files\n"
 				"\t(B) cancel\n");
 			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y);
 			if (keys & KEY_A) {
 				FILE * f = fopen("nand_dirs.lst", "w");
-				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst_dir, f));
+				iprtf("walk returned %d\n", walk(nand_root, walk_cb_lst_dir, f));
 				fclose(f);
 			} else if (keys & KEY_X) {
 				FILE * f = fopen("nand_files.lst", "w");
-				iprintf("walk returned %d\n", walk(nand_root, walk_cb_lst_file, f));
+				iprtf("walk returned %d\n", walk(nand_root, walk_cb_lst_file, f));
 				fclose(f);
 			} else if (keys & KEY_Y) {
 				FILE * f = fopen("nand_files.sha1", "w");
-				iprintf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
+				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
 			}
 		}
 		if (needs_redraw) {
-			consoleSelect(&topScreen);
+			select_term(&t1);
 			draw_file_list();
 		}
 	}
@@ -292,20 +293,23 @@ enum {
 int main(int argc, const char * const argv[]) {
 	defaultExceptionHandler();
 
-	videoSetMode(MODE_0_2D);
-	videoSetModeSub(MODE_0_2D);
-
-	vramSetBankA(VRAM_A_MAIN_BG);
+	videoSetModeSub(MODE_3_2D);
+	videoSetMode(MODE_3_2D);
 	vramSetBankC(VRAM_C_SUB_BG);
+	vramSetBankA(VRAM_A_MAIN_BG);
+	u16 *fb0 = bgGetGfxPtr(bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0));
+	u16 *fb1 = bgGetGfxPtr(bgInit(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0));
+	generate_ansi256_palette(BG_PALETTE_SUB);
+	dmaCopy(BG_PALETTE_SUB, BG_PALETTE, 256 * 2);
 
-	consoleInit(&topScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, true, true);
-	consoleInit(&bottomScreen, 3, BgType_Text4bpp, BgSize_T_256x256, 31, 0, false, true);
+	term_init(&t0, fb0);
+	term_init(&t1, fb1);
 
-	consoleSelect(&bottomScreen);
+	select_term(&t0);
 
 	u32 bat_reg = getBatteryLevel();
 	if (!(bat_reg & 1)) {
-		iprintf("battery level too low: %08" PRIx32 "\n", bat_reg);
+		iprtf("battery level too low: %08" PRIx32 "\n", bat_reg);
 		exit_with_prompt(0);
 	}
 
@@ -313,19 +317,19 @@ int main(int argc, const char * const argv[]) {
 
 	if (argc > 1) {
 		if (argc == 2 && !strcmp(argv[1], "image-test")) {
-			iprintf("image test mode\n");
+			prt("image test mode\n");
 			mode = MODE_IMAGE_TEST;
 		} else if (argc == 2 && !strcmp(argv[1], "direct-test")) {
-			iprintf("direct test mode\n");
+			prt("direct test mode\n");
 			mode = MODE_DIRECT_TEST;
 		} else if (argc == 5 && !strcmp(argv[1], "aes-test")) {
-			iprintf("AES test default\n");
+			prt("AES test default\n");
 			aes_test(atoi(argv[2]), argv[3], argv[4]);
 			setCpuClock(false);
-			iprintf("AES test clock low\n");
+			prt("AES test clock low\n");
 			aes_test(atoi(argv[2]), argv[3], argv[4]);
 			setCpuClock(true);
-			iprintf("AES test clock true\n");
+			prt("AES test clock high\n");
 			aes_test(atoi(argv[2]), argv[3], argv[4]);
 			exit_with_prompt(0);
 		}
@@ -333,15 +337,15 @@ int main(int argc, const char * const argv[]) {
 
 	int ret;
 
-	iprintf("FAT init...");
+	prt("FAT init...");
 	cpuStartTiming(0);
 	ret = fatInitDefault();
 	u32 td = timerTicks2usec(cpuEndTiming());
 	if (!ret) {
-		iprintf("\x1b[3D failed!\n");
+		prt("\x1b[3D failed!\n");
 		exit_with_prompt(-1);
 	} else {
-		iprintf("\x1b[3D succeed, %" PRIu32 "us\n", td);
+		iprtf("\x1b[3D succeed, %" PRIu32 "us\n", td);
 	}
 
 	if (mode == MODE_IMAGE_TEST) {
@@ -358,14 +362,14 @@ int main(int argc, const char * const argv[]) {
 		int is3DS;
 		ret = test_ids_against_nand(&is3DS);
 		if (!is3DS) {
-			iprintf("you should NOT use direct test mode in DSi\n");
+			prt("you should NOT use direct test mode in DSi\n");
 			exit_with_prompt(0);
 		}
 		if (ret != 0) {
-			iprintf("most likely Console ID is wrong\n");
+			prt("most likely Console ID is wrong\n");
 			exit_with_prompt(ret);
 		}
-		iprintf(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
+		prt(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
 		if (wait_keys(KEY_A | KEY_B) & KEY_A) {
 			if ((ret = mount(1)) != 0) {
 				exit_with_prompt(ret);
@@ -380,19 +384,19 @@ int main(int argc, const char * const argv[]) {
 		int is3DS;
 		ret = test_ids_against_nand(&is3DS);
 		if (is3DS) {
-			iprintf("no point to use this on 3DS\n");
+			prt("no point to use this on 3DS\n");
 			exit_with_prompt(0);
 		}
 		if (ret != 0) {
-			iprintf("most likely Console ID is wrong\n");
+			prt("most likely Console ID is wrong\n");
 			exit_with_prompt(ret);
 		}
 		// TODO: also test against sha1
 		if ((ret = test_image_against_nand()) != 0) {
-			iprintf("you don't have a valid NAND backup, backup now? Yes(A)/No(B)\n");
+			prt("you don't have a valid NAND backup, backup now? Yes(A)/No(B)\n");
 			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
 				if ((ret = backup()) != 0) {
-					iprintf("backup failed\n");
+					prt("backup failed\n");
 					exit_with_prompt(ret);
 				}
 			} else {
@@ -400,7 +404,7 @@ int main(int argc, const char * const argv[]) {
 			}
 		}
 		// either way, we should have a valid native NAND image by now
-		iprintf("mount image (A)? quit(B)?\n");
+		prt("mount image (A)? quit(B)?\n");
 		unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X);
 		if (keys & KEY_B) {
 			return 0;
@@ -408,7 +412,7 @@ int main(int argc, const char * const argv[]) {
 			mode = MODE_IMAGE;
 		} else if (keys & KEY_X) {
 			mode = MODE_DIRECT;
-			iprintf(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
+			prt(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
 		}
 		if((ret = mount(mode ==  MODE_DIRECT ? 1 : 0)) != 0) {
 			exit_with_prompt(ret);

@@ -9,6 +9,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "term256ext.h"
 #include "walk.h"
 
 #define NAME_BUF_LEN 0x100
@@ -42,7 +43,7 @@ static int s_push(void *p) {
 		}
 		return 1;
 	} else {
-		iprintf("stack limit exceed\n");
+		prt("stack limit exceed\n");
 		return 0;
 	}
 }
@@ -100,7 +101,7 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 			siprintf(fullname, p[strlen(p) - 1] == '/' ? "%s%s" : "%s/%s", p, de->d_name);
 			struct stat s;
 			if (stat(fullname, &s) != 0) {
-				iprintf("weird stat failure, errno: %d\n", errno);
+				iprtf("weird stat failure, errno: %d\n", errno);
 				free(fullname);
 				continue;
 			}
@@ -119,7 +120,7 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 					return -2;
 				}
 			} else {
-				iprintf("weird type 0x%08" PRIx32 ": %s\n", s.st_mode & S_IFMT, fullname);
+				iprtf("weird type 0x%08" PRIx32 ": %s\n", s.st_mode & S_IFMT, fullname);
 				free(fullname);
 			}
 		}
@@ -127,7 +128,7 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 		free(p);
 	}
 	s_free();
-	iprintf("walk stats: %u, %u, %u\n", stack_max_depth, stack_usage, longest_path);
+	iprtf("walk stats: %u, %u, %u\n", stack_max_depth, stack_usage, longest_path);
 	return 0;
 }
 
@@ -144,7 +145,7 @@ void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t
 		sniprintf(name_buf, NAME_BUF_LEN, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
 		struct stat s;
 		if (stat(name_buf, &s) != 0) {
-			iprintf("weird stat failure, errno: %d\n", errno);
+			iprtf("weird stat failure, errno: %d\n", errno);
 			continue;
 		}
 		if ((s.st_mode & S_IFMT) == S_IFREG) {

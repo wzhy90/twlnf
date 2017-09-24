@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <sys/statvfs.h>
 #include <nds.h>
+#include "term256ext.h"
 #include "utils.h"
 
 // globals shared by extern
@@ -22,14 +23,14 @@ static inline int htoi(char a){
 
 int hex2bytes(u8 *out, unsigned byte_len, const char *in){
 	if (strlen(in) < byte_len << 1){
-		iprintf("%s: invalid input length, expecting %u, got %u.\n",
+		iprtf("%s: invalid input length, expecting %u, got %u.\n",
 			__FUNCTION__, (unsigned)byte_len << 1, (unsigned)strlen(in));
 		return -1;
 	}
 	for(unsigned i = 0; i < byte_len; ++i){
 		int h = htoi(*in++), l = htoi(*in++);
 		if(h == -1 || l == -1){
-			iprintf("%s: invalid input \"%c%c\"\n",
+			iprtf("%s: invalid input \"%c%c\"\n",
 				__FUNCTION__, *(in - 2), *(in - 1));
 			return -2;
 		}
@@ -55,10 +56,10 @@ int save_file(const char *filename, const void *buffer, size_t size, int save_sh
 	size_t written = fwrite(buffer, 1, size, f);
 	fclose(f);
 	if (written != size) {
-		iprintf("Error saving %s\n", filename);
+		iprtf("Error saving %s\n", filename);
 		return -2;
 	} else {
-		iprintf("saved %s\n", filename);
+		iprtf("saved %s\n", filename);
 	}
 	if (save_sha1) {
 		sha1ctx.sha_block = 0;
@@ -87,17 +88,17 @@ int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1,
 		fseek(f, 0, SEEK_SET);
 		size_t read = fread(*pbuf, 1, *psize, f);
 		if (read != *psize) {
-			iprintf("Error loading %s\n", filename);
+			iprtf("Error loading %s\n", filename);
 			free(*pbuf);
 			*pbuf = 0;
 			fclose(f);
 			return -2;
 		} else {
-			iprintf("loaded %s(%u)\n", filename, read);
+			iprtf("loaded %s(%u)\n", filename, read);
 		}
 		if (verify_sha1) {
 			//TODO:
-			iprintf("%s: not implemented\n", __FUNCTION__);
+			iprtf("%s: not implemented\n", __FUNCTION__);
 		}
 		fclose(f);
 		return 0;
@@ -128,7 +129,7 @@ int save_sha1_file(const char *filename) {
 void print_bytes(const void *buf, size_t len) {
 	const unsigned char *p = (const unsigned char *)buf;
 	for(size_t i = 0; i < len; ++i) {
-		iprintf("%02" PRIx8, *p++);
+		iprtf("%02" PRIx8, *p++);
 	}
 }
 
@@ -138,8 +139,8 @@ size_t df(const char *path, int verbose) {
 	statvfs(path, &s);
 	size_t free = s.f_bsize * s.f_bfree;
 	if (verbose) {
-		iprintf("%s", to_mebi(free));
-		iprintf("/%s MB (free/total)\n", to_mebi(s.f_bsize * s.f_blocks));
+		iprtf("%s", to_mebi(free));
+		iprtf("/%s MB (free/total)\n", to_mebi(s.f_bsize * s.f_blocks));
 	}
 	return free;
 }

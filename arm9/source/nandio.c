@@ -2,9 +2,9 @@
 #include <nds.h>
 #include <nds/disc_io.h>
 #include <malloc.h>
-#include <stdio.h>
 #include "aes.h"
 #include "crypto.h"
+#include "term256ext.h"
 
 #define SECTOR_SIZE 512
 #define CRYPT_BUF_LEN 64
@@ -21,7 +21,7 @@ bool nandio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);
 		if (crypt_buf == 0) {
-			iprintf("nandio: failed to alloc buffer\n");
+			prt("nandio: failed to alloc buffer\n");
 		}
 	}
 	return crypt_buf != 0;
@@ -47,7 +47,7 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 		}
 		return true;
 	} else {
-		iprintf("NANDIO: read error\n");
+		prt("NANDIO: read error\n");
 		return false;
 	}
 }
@@ -76,7 +76,7 @@ static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
 	if(nand_WriteSectors(start, len, crypt_buf)){
 		return true;
 	} else {
-		iprintf("NANDIO: write error\n");
+		prt("NANDIO: write error\n");
 		return false;
 	}
 }

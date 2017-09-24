@@ -6,6 +6,7 @@
 #include "aes.h"
 #include "crypto.h"
 #include "utils.h"
+#include "term256ext.h"
 
 #define SECTOR_SIZE 512
 #define CRYPT_BUF_LEN 64
@@ -25,13 +26,13 @@ bool imgio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);
 		if (crypt_buf == 0) {
-			iprintf("imgio: failed to alloc buffer\n");
+			prt("imgio: failed to alloc buffer\n");
 		}
 	}
 	if (f == 0) {
 		f = fopen(nand_img_name, "r+");
 		if (f == 0) {
-			iprintf("imgio: failed to open image\n");
+			prt("imgio: failed to open image\n");
 		}
 	}
 	return crypt_buf != 0 && f != 0;
@@ -46,7 +47,7 @@ bool dumped = false;
 // len is guaranteed <= CRYPT_BUF_LEN
 static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 	if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
-		iprintf("IMGIO: seek fail\n");
+		prt("IMGIO: seek fail\n");
 		return false;
 	}
 	if (fread(crypt_buf, SECTOR_SIZE, len, f) == len) {
@@ -63,7 +64,7 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 		}
 		return true;
 	} else {
-		iprintf("IMGIO: read fail\n");
+		prt("IMGIO: read fail\n");
 		return false;
 	}
 }
@@ -88,13 +89,13 @@ bool imgio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
 	dsi_nand_crypt(crypt_buf, buffer, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 	if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
-		iprintf("IMGIO: seek fail\n");
+		prt("IMGIO: seek fail\n");
 		return false;
 	}
 	if (fwrite(crypt_buf, SECTOR_SIZE, len, f) == len) {
 		return true;
 	} else {
-		iprintf("IMGIO: write fail\n");
+		prt("IMGIO: write fail\n");
 		return false;
 	}
 }

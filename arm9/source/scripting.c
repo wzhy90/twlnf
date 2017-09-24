@@ -8,6 +8,7 @@
 #include "common.h"
 #include "utils.h"
 #include "scripting.h"
+#include "term256ext.h"
 
 extern const char nand_root[];
 extern const char list_dir[];
@@ -27,7 +28,7 @@ int scripting_init() {
 		file_buf = (u8*)memalign(32, FILE_BUF_LEN);
 	}
 	if (file_buf == 0) {
-		iprintf("failed to alloc buffer\n");
+		prt("failed to alloc buffer\n");
 		return -1;
 	} else {
 		return 0;
@@ -113,14 +114,14 @@ enum {
 
 static int cmd_exist(const char * arg, unsigned fmt) {
 	struct stat s;
-	iprintf("%s", arg);
+	prt(arg);
 	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, arg);
 	convert_backslash(name_buf0);
 	if (stat(name_buf0, &s) == 0 && (s.st_mode & S_IFMT) == fmt) {
-		iprintf(" exist\n");
+		prt(" exist\n");
 		return NO_ERR;
 	} else {
-		iprintf(" doesn't exist\n");
+		prt(" doesn't exist\n");
 		return ERR_CMD_FAIL;
 	}
 }
@@ -128,9 +129,9 @@ static int cmd_exist(const char * arg, unsigned fmt) {
 static void rm(const char *name) {
 	int r = remove(name);
 	if (r == 0) {
-		iprintf("removed: %s\n", name);
+		iprtf("removed: %s\n", name);
 	} else {
-		iprintf("remove() returned %d for %s, errno: %d\n", r, name, errno);
+		iprtf("remove() returned %d for %s, errno: %d\n", r, name, errno);
 	}
 }
 
@@ -155,7 +156,7 @@ static int cmd_rm(const char * arg) {
 				sniprintf(name_buf1, LINE_BUF_LEN, "%s%s", name_buf0, de->d_name);
 				struct stat s;
 				if (stat(name_buf1, &s) != 0) {
-					iprintf("weird stat failure, errno: %d\n", errno);
+					iprtf("weird stat failure, errno: %d\n", errno);
 					continue;
 				}
 				if ((s.st_mode & S_IFMT) == S_IFREG) {
@@ -313,7 +314,7 @@ void mkdir_parent(const char *root, const char *name) {
 		if (stat(name_buf1, &s) != 0) {
 			// any ancestor doesn't exist, create it
 			if (mkdir(name_buf1, S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
-				iprintf("mkdir fail(%d): %s\n", errno, name_buf1);
+				iprtf("mkdir fail(%d): %s\n", errno, name_buf1);
 			}
 		}
 	}
@@ -397,27 +398,27 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 			// prepare name
 			char *name = &line[SHA1_LEN * 2 + 2];
 			convert_backslash(name);
-			iprintf("%s", name);
+			prt(name);
 			// hash
 			unsigned char digest[SHA1_LEN];
 			if (dry_run) {
 				// make sure the target path is valid
 				if (validate_path(nand_root, name, S_IFREG) != 0) {
-					iprintf("invalid target path: %s%s\n", nand_root, name);
+					prt(" invalid path\n");
 					++invalid;
 				} else {
 					// TODO: maybe a "files on NAND are identical" test
 					int sha1_ret = sha1_file(digest, name);
 					if (sha1_ret == -1) {
-						iprintf(" missing\n");
+						prt(" missing\n");
 						++missing;
 					} else {
 						size += sha1_ret;
 						if (memcmp(line, digest, SHA1_LEN)) {
-							iprintf(" wrong\n");
+							prt(" wrong\n");
 							++wrong;
 						} else {
-							iprintf(" OK\n");
+							prt(" OK\n");
 							++check;
 						}
 					}
@@ -428,36 +429,36 @@ int scripting(const char *scriptname, int dry_run, unsigned *p_size){
 				// sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", nand_root, name);
 				int cp_ret = cp(name, name_buf0);
 				if (cp_ret != 0) {
-					iprintf(" failed to copy, cp() returned %d, you may panic now\n", cp_ret);
+					iprtf(" failed to copy, cp() returned %d, you may panic now\n", cp_ret);
 					ret = ERR_CP_FAIL;
 					break;
 				}
-				iprintf(" copied to NAND");
+				prt(" copied to NAND");
 				if (sha1_file(digest, name_buf0) == -1) {
-					iprintf(" but missing, weird\n");
+					prt(" but missing, weird\n");
 					ret = ERR_WEIRD;
 					break;
 				} else if (memcmp(line, digest, SHA1_LEN)) {
-					iprintf(" but verification failed, you may panic now\n");
+					prt(" but verification failed, you may panic now\n");
 					ret = ERR_SHA1_FAIL;
 					break;
 				} else {
-					iprintf(" and verified\n");
+					prt(" and verified\n");
 				}
 			}
 		}
 	}
 	fclose(f);
 	if (dry_run) {
-		iprintf("%u/%u OK/All, %u bytes\n", check, check + missing + wrong, size);
+		iprtf("%u/%u OK/All, %u bytes\n", check, check + missing + wrong, size);
 		if (missing + wrong > 0) {
-			iprintf("%u wrong, %u missing\n", wrong, missing);
+			iprtf("%u wrong, %u missing\n", wrong, missing);
 		}
 		if (irregular > 0) {
-			iprintf("%u irregular line(s)\n", irregular);
+			iprtf("%u irregular line(s)\n", irregular);
 		}
 		if (invalid > 0) {
-			iprintf("%u invalid target path(s)\n", invalid);
+			iprtf("%u invalid target path(s)\n", invalid);
 		}
 		*p_size = size;
 		return ret != 0 ? ret : irregular + invalid + missing + wrong;

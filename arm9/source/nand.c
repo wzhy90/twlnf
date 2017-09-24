@@ -12,6 +12,7 @@
 #include "sector0.h"
 #include "nandio.h"
 #include "imgio.h"
+#include "term256ext.h"
 
 extern const char nand_vol_name[];
 extern swiSHA1context_t sha1ctx;
@@ -71,26 +72,27 @@ static void generate_footer() {
 
 int get_ids() {
 	if (!isDSiMode()) {
-		iprintf("not running in DSi mode\n");
+		prt("not running in DSi mode\n");
 		return -2;
 	}
 	nand_size = nand_GetSize();
 	if (nand_size == 0) {
-		iprintf("can't access eMMC\n");
+		prt("can't access eMMC\n");
 		return -3;
 	}
-	iprintf("eMMC: %u sectors, %s MB\n", nand_size, to_mebi(nand_size * SECTOR_SIZE));
+	iprtf("eMMC: %u sectors, %s MB\n", nand_size, to_mebi(nand_size * SECTOR_SIZE));
 
 	fifoSendValue32(FIFO_USER_01, 4);
 	while (fifoCheckDatamsgLength(FIFO_USER_01) < 16) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
 	fifoGetDatamsg(FIFO_USER_01, 16, (u8*)emmc_cid);
-	iprintf("eMMC CID:\n");
+	prt("eMMC CID: ");
 	print_bytes(emmc_cid, 16);
+	prt("\n");
 
 	char *p_console_id_file = 0;
 	size_t console_id_file_size;
 	int console_id_from_file = 0;
-	if (load_file((void**)&p_console_id_file, &console_id_file_size, "console_id.txt", 1, 0) == 0) {
+	if (load_file((void**)&p_console_id_file, &console_id_file_size, "console_id.txt", 0, 0) == 0) {
 		if (console_id_file_size >= 16 && hex2bytes(console_id, 8, p_console_id_file) == 0) {
 			console_id_from_file = 1;
 		}
@@ -101,9 +103,9 @@ int get_ids() {
 		while (fifoCheckDatamsgLength(FIFO_USER_01) < 8) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
 		fifoGetDatamsg(FIFO_USER_01, 8, console_id);
 	}
-	iprintf("Console ID (from %s):\n", console_id_from_file ? "file" : "RAM");
+	iprtf("Console ID (from %s): ", console_id_from_file ? "file" : "RAM");
 	print_bytes(console_id, 8);
-	iprintf("\n");
+	prt("\n");
 	return 0;
 }
 
@@ -126,19 +128,19 @@ int test_ids_against_nand(int *p_is3DS) {
 int test_image_against_nand() {
 	FILE *f = fopen(nand_img_name, "r");
 	if (f == 0) {
-		iprintf("can't open %s\n", nand_img_name);
+		iprtf("can't open %s\n", nand_img_name);
 		return -1;
 	}
 	// test sector 0 against NAND
 	nand_ReadSectors(0, 1, sector_buf);
 	size_t read = fread(sector_buf_a, 1, SECTOR_SIZE, f);
 	if (read != SECTOR_SIZE) {
-		iprintf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
+		iprtf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
 		fclose(f);
 		return -1;
 	}
 	if (memcmp(sector_buf, sector_buf_a, SECTOR_SIZE) != 0) {
-		iprintf("sector 0 doesn't match, foreign NAND image?\n");
+		iprtf("sector 0 doesn't match, foreign NAND image?\n");
 		fclose(f);
 		return -2;
 	}
@@ -146,7 +148,7 @@ int test_image_against_nand() {
 	fseek(f, 0, SEEK_END);
 	unsigned img_size = ftell(f);
 	if (img_size != nand_size * SECTOR_SIZE + sizeof(nocash_footer_t)) {
-		iprintf("image size: %u, expecting %u\n", img_size,
+		iprtf("image size: %u, expecting %u\n", img_size,
 			(nand_size * SECTOR_SIZE + sizeof(nocash_footer_t)));
 		fclose(f);
 		return -3;
@@ -156,12 +158,12 @@ int test_image_against_nand() {
 	fseek(f, nand_size * SECTOR_SIZE, SEEK_SET);
 	read = fread(sector_buf_a, 1, sizeof(nocash_footer_t), f);
 	if (read != sizeof(nocash_footer_t)) {
-		iprintf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
+		iprtf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
 		fclose(f);
 		return -1;
 	}
 	if (memcmp(sector_buf, sector_buf_a, sizeof(nocash_footer_t)) != 0) {
-		iprintf("invalid footer\n");
+		prt("invalid footer\n");
 		fclose(f);
 		// save_file("footer_expected.bin", sector_buf, sizeof(nocash_footer_t), 0);
 		// save_file("footer_img.bin", sector_buf_a, sizeof(nocash_footer_t), 0);
@@ -175,23 +177,23 @@ int test_image_against_nand() {
 int test_image_against_footer() {
 	FILE *f = fopen(nand_img_name, "r");
 	if (f == 0) {
-		iprintf("can't open %s\n", nand_img_name);
+		iprtf("can't open %s\n", nand_img_name);
 		return -1;
 	}
 	// read and validate footer
 	fseek(f, 0, SEEK_END);
 	unsigned size = ftell(f) - sizeof(nocash_footer_t);
-	iprintf("image size sans footer: %s MB\n", to_mebi(size));
+	iprtf("image size sans footer: %s MB\n", to_mebi(size));
 	fseek(f, size, SEEK_SET);
 	size_t read = fread(sector_buf, 1, sizeof(nocash_footer_t), f);
 	if (read != sizeof(nocash_footer_t)) {
-		iprintf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
+		iprtf("fread() returned %u, expecting %u\n", read, sizeof(nocash_footer_t));
 		fclose(f);
 		return -1;
 	}
 	nocash_footer_t *footer = (nocash_footer_t*)sector_buf;
 	if (memcmp(footer->footer_id, nocash_footer_id, sizeof(nocash_footer_id)) != 0) {
-		iprintf("invalid footer\n");
+		iprtf("invalid footer\n");
 		fclose(f);
 		return -2;
 	}
@@ -202,7 +204,7 @@ int test_image_against_footer() {
 	fseek(f, 0, SEEK_SET);
 	read = fread(sector_buf, 1, SECTOR_SIZE, f);
 	if (read != SECTOR_SIZE) {
-		iprintf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
+		iprtf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
 		fclose(f);
 		return -1;
 	}
@@ -217,14 +219,14 @@ int mount(int direct) {
 	} else {
 		FILE *f = fopen(nand_img_name, "r");
 		if (f == 0) {
-			iprintf("can't open %s\n", nand_img_name);
+			iprtf("can't open %s\n", nand_img_name);
 			return -1;
 		}
 		// test sector 0 against nand
 		size_t read = fread(sector_buf, 1, SECTOR_SIZE, f);
 		fclose(f);
 		if (read != SECTOR_SIZE) {
-			iprintf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
+			iprtf("fread() returned %u, expecting %u\n", read, SECTOR_SIZE);
 			return -1;
 		}
 	}
@@ -240,15 +242,15 @@ int mount(int direct) {
 		mnt_ret = fatMount(nand_vol_name, &io_nand_img, mbr->partitions[0].offset, 4, 64);
 	}
 	if (mnt_ret == 0) {
-		iprintf("failed to mount %s\n", direct ? nand_vol_name : nand_img_name);
+		iprtf("failed to mount %s\n", direct ? nand_vol_name : nand_img_name);
 		return -2;
 	} else {
-		iprintf("%s mounted\n", direct ? nand_vol_name : nand_img_name);
+		iprtf("%s mounted\n", direct ? nand_vol_name : nand_img_name);
 	}
 	///* // the volume label is all white space?
 	char vol_label[32];
 	fatGetVolumeLabel(nand_vol_name, vol_label);
-	iprintf("label: \"%s\"\n", vol_label);
+	iprtf("label: \"%s\"\n", vol_label);
 	//*/
 	return 0;
 }
@@ -260,16 +262,16 @@ u32 dump_buf[DUMP_BUF_SIZE / sizeof(u32)];
 
 int backup() {
 	if ((nand_size * SECTOR_SIZE) % DUMP_BUF_SIZE != 0) {
-		iprintf("weird NAND size not supported\n");
+		prt("weird NAND size not supported\n");
 		return -2;
 	}
 	if (df(".", 0) < (nand_size * SECTOR_SIZE) + DUMP_BUF_SIZE) {
-		iprintf("insufficient space\n");
+		prt("insufficient space\n");
 		return -1;
 	}
 	FILE *f = fopen(nand_img_name, "w");
 	if (f == 0) {
-		iprintf("failed to open %s for writing\n", nand_img_name);
+		iprtf("failed to open %s for writing\n", nand_img_name);
 		return -1;
 	}
 	sha1ctx.sha_block = 0;
@@ -281,24 +283,24 @@ int backup() {
 	// return -1;
 	for (unsigned i = 0; i < loops; ++i) {
 		if (nand_ReadSectors(SECTORS_PER_LOOP * i, SECTORS_PER_LOOP, dump_buf) == 0) {
-			iprintf("error reading NAND\n");
+			prt("error reading NAND\n");
 			ret = -1;
 			break;
 		}
 		swiSHA1Update(&sha1ctx, dump_buf, DUMP_BUF_SIZE);
 		written = fwrite(dump_buf, 1, DUMP_BUF_SIZE, f);
 		if (written != DUMP_BUF_SIZE) {
-			iprintf("error writing to %s\n", nand_img_name);
+			iprtf("error writing to %s\n", nand_img_name);
 			ret = -1;
 			break;
 		}
-		iprintf("%u/%u\r", i + 1, loops);
+		iprtf("%u/%u\r", i + 1, loops);
 	}
 	generate_footer();
 	swiSHA1Update(&sha1ctx, sector_buf, sizeof(nocash_footer_t));
 	written = fwrite(sector_buf, 1, sizeof(nocash_footer_t), f);
 	if (written != sizeof(nocash_footer_t)) {
-		iprintf("error writing to %s\n", nand_img_name);
+		iprtf("error writing to %s\n", nand_img_name);
 		ret = -1;
 	}
 	fclose(f);
@@ -309,7 +311,7 @@ int backup() {
 }
 
 int restore() {
-	iprintf("%s: not implemented\n", __FUNCTION__);
+	iprtf("%s: not implemented\n", __FUNCTION__);
 	return -1;
 }
 
@@ -325,7 +327,7 @@ void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
 	}
 	u32 td = timerTicks2usec(cpuEndTiming());
 
-	printf("%" PRIu32 " us %u KB\n%.2f KB/s\n", td, (DUMP_BUF_SIZE * loops) >> 10,
+	prtf("%" PRIu32 " us %u KB\n%.2f KB/s\n", td, (DUMP_BUF_SIZE * loops) >> 10,
 		1000.0f * DUMP_BUF_SIZE * loops / td);
 }
 
