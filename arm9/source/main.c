@@ -78,6 +78,7 @@ void file_list_add(const char *name, size_t size, void *_) {
 
 void draw_file_list() {
 	// TODO: right align position
+	term_rst(&t1, 15, 0);
 	iprtf(Cls Red "%s %u/%u\n", list_dir, view_pos + cur_pos + 1, file_list_len);
 	for (unsigned i = 0; i < VIEW_HEIGHT; ++i) {
 		if (view_pos + i < file_list_len) {
@@ -89,7 +90,7 @@ void draw_file_list() {
 			prt(" \n");
 		}
 	}
-	iprtf(Red "%s\n" Wht, footer);
+	iprtf(Red "%s" Wht, footer);
 }
 
 void menu_move(int move) {
