@@ -76,26 +76,36 @@ static_assert(sizeof(whitespace) == TERM_COLS + 1, "the white space buf is not l
 
 void draw_file_list() {
 	select_term(&t1);
-	sniprintf(size_str_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
-	iprtf(Rst Cls BlkOnWht "%s%s%s", list_dir,
-		whitespace + strlen(list_dir) + strlen(size_str_buf), size_str_buf);
+	int len_size = sniprintf(size_str_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
+	prt(Rst Cls BlkOnWht);
+	// iprtf("%s%s%s" seems dumb
+	prt(list_dir);
+	prt(whitespace + strlen(list_dir) + len_size);
+	prt(size_str_buf);
 	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
 			prt(i == cur_pos ? CyanOnBlk : Rst);
 			file_list_item_t *item = &file_list[view_pos + i];
-			sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
+			len_size = sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
 			// cut off the name if too long
-			if (strlen(item->name) + 1 + strlen(size_str_buf) > TERM_COLS) {
-				strncpy(name_str_buf, item->name, TERM_COLS);
-				strcpy(name_str_buf + TERM_COLS - strlen(size_str_buf) - 5, " ...");
-				iprtf("%s %s", name_str_buf, size_str_buf);
+			int len_name = strlen(item->name);
+			if (len_name + 1 + len_size > TERM_COLS) {
+				strncpy(name_str_buf, item->name, TERM_COLS - len_size - 5);
+				strcpy(name_str_buf + TERM_COLS - len_size - 5, " ...");
+				prt(name_str_buf);
+				prt(" ");
+				prt(size_str_buf);
 			} else {
-				iprtf("%s%s%s", item->name,
-					whitespace + strlen(item->name) + strlen(size_str_buf), size_str_buf);
+				prt(item->name);
+				prt(whitespace + len_name + len_size);
+				prt(size_str_buf);
 			}
 		}
 	}
-	iprtf(BlkOnWht "\x1b[%d;0H%s%s", TERM_ROWS, footer, whitespace + strlen(footer));
+	iprtf("\x1b[%d;0H", TERM_ROWS);
+	prt(BlkOnWht);
+	prt(footer);
+	prt(whitespace + strlen(footer));
 	select_term(&t0);
 }
 
