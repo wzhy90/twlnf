@@ -102,7 +102,7 @@ void draw_file_list() {
 			}
 		}
 	}
-	iprtf("\x1b[%d;0H", TERM_ROWS);
+	iprtf("\x1b[%d;1H", TERM_ROWS);
 	prt(BlkOnWht);
 	prt(footer);
 	prt(whitespace + strlen(footer));
@@ -115,26 +115,37 @@ void menu_move(int move) {
 	case -1:
 		if (cur_pos > 0) {
 			--cur_pos;
-		} else {
-			// TODO: move view
+		} else if (view_pos > 0) {
+			--view_pos;
 		}
 		break;
 	case 1:
 		if (cur_pos < last_pos) {
 			++cur_pos;
-		} else {
+		} else if (view_pos + VIEW_ROWS < file_list_len){
+			++view_pos;
 		}
 		break;
 	case -2:
 		if (cur_pos > 0) {
 			cur_pos = 0;
-		} else {
+		} else if(view_pos > 0){
+			if (view_pos > VIEW_ROWS) {
+				view_pos -= VIEW_ROWS;
+			} else {
+				view_pos = 0;
+			}
 		}
 		break;
 	case 2:
 		if (cur_pos < last_pos) {
 			cur_pos = last_pos;
-		} else {
+		} else if(view_pos + VIEW_ROWS < file_list_len){
+			if (view_pos < file_list_len - VIEW_ROWS * 2){
+				view_pos += VIEW_ROWS;
+			} else {
+				view_pos = file_list_len - VIEW_ROWS;
+			}
 		}
 	}
 }
@@ -240,7 +251,12 @@ void menu() {
 		uint32 keys = keysDown();
 		int needs_redraw = 0;
 		if (keys & KEY_B) {
-			break;
+			prt("unmount and quit(A)? cancel(B)\n");
+			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
+				break;
+			} else {
+				prt("cancelled\n");
+			}
 		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
 			if (keys & KEY_UP) {
 				menu_move(-1);
