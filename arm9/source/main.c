@@ -69,19 +69,33 @@ void file_list_add(const char *name, size_t size, void *_) {
 	++file_list_len;
 }
 
+char size_str_buf[TERM_COLS];
+char name_str_buf[TERM_COLS];
+const char whitespace[] = "                                          ";
+static_assert(sizeof(whitespace) == TERM_COLS + 1, "the white space buf is not long enough");
+
 void draw_file_list() {
-	// TODO: right align position
 	select_term(&t1);
-	iprtf(Rst Cls BlkOnWht "%s %u/%u", list_dir, view_pos + cur_pos + 1, file_list_len);
+	sniprintf(size_str_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
+	iprtf(Rst Cls BlkOnWht "%s%s%s", list_dir,
+		whitespace + strlen(list_dir) + strlen(size_str_buf), size_str_buf);
 	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
 			prt(i == cur_pos ? CyanOnBlk : Rst);
 			file_list_item_t *item = &file_list[view_pos + i];
-			// TODO: right align size
-			iprtf("\x1b[%d;0H%s %u", i + 2, item->name, item->size);
+			sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
+			// cut off the name if too long
+			if (strlen(item->name) + 1 + strlen(size_str_buf) > TERM_COLS) {
+				strncpy(name_str_buf, item->name, TERM_COLS);
+				strcpy(name_str_buf + TERM_COLS - strlen(size_str_buf) - 5, " ...");
+				iprtf("%s %s", name_str_buf, size_str_buf);
+			} else {
+				iprtf("%s%s%s", item->name,
+					whitespace + strlen(item->name) + strlen(size_str_buf), size_str_buf);
+			}
 		}
 	}
-	iprtf(BlkOnWht "\x1b[%d;0H%s", TERM_ROWS, footer);
+	iprtf(BlkOnWht "\x1b[%d;0H%s%s", TERM_ROWS, footer, whitespace + strlen(footer));
 	select_term(&t0);
 }
 
@@ -248,6 +262,8 @@ void menu() {
 				FILE * f = fopen("nand_files.sha1", "w");
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
+			} else {
+				prt("cancelled\n");
 			}
 		}
 		if (needs_redraw) {
