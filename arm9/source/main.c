@@ -24,17 +24,10 @@ const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
 
 #define Cls "\x1b[2J"
-// appearantly Rst not working
 #define Rst "\x1b[0m"
-// unfortunately background colors are not working
-#define Blk "\x1b[40m"
-#define Red "\x1b[41m"
-#define Grn "\x1b[42m"
-#define Ylw "\x1b[43m"
-#define Blu "\x1b[44m"
-#define Mag "\x1b[45m"
-#define Cyn "\x1b[46m"
-#define Wht "\x1b[47m"
+#define BlkOnWht "\x1b[30;47m"
+#define CyanOnBlk "\x1b[32;1;40m"
+#define BlkOnRed "\x1b[31;1;7;30m"
 
 typedef struct {
 	const char *name;
@@ -50,7 +43,7 @@ unsigned file_list_len;
 unsigned view_pos;
 unsigned cur_pos;
 
-#define VIEW_HEIGHT (TERM_HEIGHT - 2)
+#define VIEW_ROWS (TERM_ROWS - 2)
 
 void file_list_add(const char *name, size_t size, void *_) {
 	if (file_list_len == FILE_LIST_LEN) {
@@ -78,23 +71,22 @@ void file_list_add(const char *name, size_t size, void *_) {
 
 void draw_file_list() {
 	// TODO: right align position
-	term_rst(&t1, 15, 0);
-	iprtf(Cls Red "%s %u/%u\n", list_dir, view_pos + cur_pos + 1, file_list_len);
-	for (unsigned i = 0; i < VIEW_HEIGHT; ++i) {
+	select_term(&t1);
+	iprtf(Rst Cls BlkOnWht "%s %u/%u", list_dir, view_pos + cur_pos + 1, file_list_len);
+	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
-			iprtf(i == cur_pos ? Grn : Wht);
+			prt(i == cur_pos ? CyanOnBlk : Rst);
 			file_list_item_t *item = &file_list[view_pos + i];
 			// TODO: right align size
-			iprtf("%s %u\n", item->name, item->size);
-		} else {
-			prt(" \n");
+			iprtf("\x1b[%d;0H%s %u", i + 2, item->name, item->size);
 		}
 	}
-	iprtf(Red "%s" Wht, footer);
+	iprtf(BlkOnWht "\x1b[%d;0H%s", TERM_ROWS, footer);
+	select_term(&t0);
 }
 
 void menu_move(int move) {
-	unsigned last_pos = file_list_len < VIEW_HEIGHT ? file_list_len - 1 : VIEW_HEIGHT - 1;
+	unsigned last_pos = file_list_len < VIEW_ROWS ? file_list_len - 1 : VIEW_ROWS - 1;
 	switch (move) {
 	case -1:
 		if (cur_pos > 0) {
@@ -215,7 +207,6 @@ void menu() {
 		exit_with_prompt(-1);
 	}
 	// init menu
-	select_term(&t1);
 	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();
@@ -223,7 +214,6 @@ void menu() {
 		swiWaitForVBlank();
 		scanKeys();
 		uint32 keys = keysDown();
-		select_term(&t0);
 		int needs_redraw = 0;
 		if (keys & KEY_B) {
 			break;
@@ -261,10 +251,14 @@ void menu() {
 			}
 		}
 		if (needs_redraw) {
-			select_term(&t1);
 			draw_file_list();
 		}
 	}
+}
+
+void set_scroll_callback(int x, int y, void *param) {
+	bgSetScroll(*(int*)param, x, y);
+	bgUpdate();
 }
 
 /* different modes:
@@ -298,13 +292,15 @@ int main(int argc, const char * const argv[]) {
 	videoSetMode(MODE_3_2D);
 	vramSetBankC(VRAM_C_SUB_BG);
 	vramSetBankA(VRAM_A_MAIN_BG);
-	u16 *fb0 = bgGetGfxPtr(bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0));
-	u16 *fb1 = bgGetGfxPtr(bgInit(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0));
+	int bg0id = bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0);
+	int bg1id = bgInit(3, BgType_Bmp8, BgSize_B8_256x256, 0, 0);
+	u16 *bg0 = bgGetGfxPtr(bg0id);
+	u16 *bg1 = bgGetGfxPtr(bg1id);
 	generate_ansi256_palette(BG_PALETTE_SUB);
 	dmaCopy(BG_PALETTE_SUB, BG_PALETTE, 256 * 2);
 
-	term_init(&t0, fb0);
-	term_init(&t1, fb1);
+	term_init(&t0, bg0, set_scroll_callback, &bg0id);
+	term_init(&t1, bg1, set_scroll_callback, &bg1id);
 
 	select_term(&t0);
 
@@ -343,7 +339,7 @@ int main(int argc, const char * const argv[]) {
 	ret = fatInitDefault();
 	u32 td = timerTicks2usec(cpuEndTiming());
 	if (!ret) {
-		prt("\x1b[3D failed!\n");
+		prt("\x1b[3D " BlkOnRed "failed!\n" Rst);
 		exit_with_prompt(-1);
 	} else {
 		iprtf("\x1b[3D succeed, %" PRIu32 "us\n", td);
@@ -370,7 +366,7 @@ int main(int argc, const char * const argv[]) {
 			prt("most likely Console ID is wrong\n");
 			exit_with_prompt(ret);
 		}
-		prt(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
+		prt(BlkOnRed "are you SURE to start direct test mode(A)? quit(B)?\n");
 		if (wait_keys(KEY_A | KEY_B) & KEY_A) {
 			if ((ret = mount(1)) != 0) {
 				exit_with_prompt(ret);
@@ -413,7 +409,7 @@ int main(int argc, const char * const argv[]) {
 			mode = MODE_IMAGE;
 		} else if (keys & KEY_X) {
 			mode = MODE_DIRECT;
-			prt(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
+			prt(BlkOnRed "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
 		}
 		if((ret = mount(mode ==  MODE_DIRECT ? 1 : 0)) != 0) {
 			exit_with_prompt(ret);
