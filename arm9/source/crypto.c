@@ -18,11 +18,10 @@ static const u32 DSi_KEY_MAGIC[4] =
 
 static inline u32 u32be(const u8 *in){
 	u32 out;
-	u8 *out8 = (u8*)&out;
-	out8[0] = in[3];
-	out8[1] = in[2];
-	out8[2] = in[1];
-	out8[3] = in[0];
+	((u8*)&out)[0] = in[3];
+	((u8*)&out)[1] = in[2];
+	((u8*)&out)[2] = in[1];
+	((u8*)&out)[3] = in[0];
 	return out;
 }
 
@@ -143,7 +142,7 @@ void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 	ctr_base[3] = digest[3];
 }
 
-// crypt one AES block, in/out must be aligned to 32 bits
+// crypt one AES block, in/out must be aligned to 32 bit
 // offset as block offset
 void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
 	u32 buf[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
@@ -166,3 +165,5 @@ void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
 		add_128_32(ctr, 1);
 	}
 }
+
+// http://problemkaputt.de/gbatek.htm#dsiesblockencryption

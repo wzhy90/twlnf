@@ -297,11 +297,13 @@ void mkdir_parent(const char *root, const char *name) {
 	// this shares a lot of code with validate_path
 	// I thought about combine them with a dry_run flag
 	// but decided to write them separated instead
-	unsigned root_len = root == 0 ? 0 : strlen(root);
-	unsigned full_len = root == 0 ? strlen(name) : 0;
+	unsigned root_len, full_len;
 	if (root == 0) {
+		root_len = 0;
+		full_len = strlen(name);
 		strcpy(name_buf0, name);
 	} else {
+		root_len = strlen(root);
 		full_len = sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", root, name);
 	}
 	struct stat s;

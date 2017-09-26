@@ -207,7 +207,21 @@ void walk_cb_sha1(const char *name, int is_dir, void *p_param) {
 	fiprintf((FILE*)p_param, " *%s\n", rname);
 }
 
+char name_buf[0x200];
 void walk_cb_dump(const char *name, int is_dir, void *_) {
+	if (is_dir) {
+		return;
+	}
+	const char *rname = name + sizeof(nand_root) - 1;
+	iprtf("%s", rname);
+	siprintf(name_buf, "dump/%s", rname);
+	mkdir_parent(0, name_buf);
+	int ret = cp(name, name_buf);
+	if (ret != 0) {
+		iprtf(" failed(%d)\n", ret);
+	} else {
+		prt(" dumped\n");
+	}
 }
 
 void menu_action(const char *name) {
@@ -274,8 +288,9 @@ void menu() {
 			prt("\t(A) list NAND directories\n"
 				"\t(X) list NAND files\n"
 				"\t(Y) sha1 NAND files\n"
+				"\t(R) dump NAND files\n"
 				"\t(B) cancel\n");
-			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y);
+			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y | KEY_R);
 			if (keys & KEY_A) {
 				FILE * f = fopen("nand_dirs.lst", "w");
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_lst_dir, f));
@@ -288,6 +303,8 @@ void menu() {
 				FILE * f = fopen("nand_files.sha1", "w");
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
+			} else if (keys & KEY_R) {
+				iprtf("walk returned %d\n", walk(nand_root, walk_cb_dump, 0));
 			} else {
 				prt("cancelled\n");
 			}
