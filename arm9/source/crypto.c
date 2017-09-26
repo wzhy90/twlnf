@@ -26,40 +26,6 @@ static inline u32 u32be(const u8 *in){
 	return out;
 }
 
-static inline void byte_reverse_16(u8 *o, const u8 *i) {
-	o[0] = i[15];
-	o[1] = i[14];
-	o[2] = i[13];
-	o[3] = i[12];
-	o[4] = i[11];
-	o[5] = i[10];
-	o[6] = i[9];
-	o[7] = i[8];
-	o[8] = i[7];
-	o[9] = i[6];
-	o[10] = i[5];
-	o[11] = i[4];
-	o[12] = i[3];
-	o[13] = i[2];
-	o[14] = i[1];
-	o[15] = i[0];
-}
-
-// in place
-static inline void byte_reverse_16_ip(u8 *io){
-	u8 t;
-#define SWAP(a, b) t = io[a]; io[a] = io[b]; io[b] = t
-	SWAP(0, 15);
-	SWAP(1, 14);
-	SWAP(2, 13);
-	SWAP(3, 12);
-	SWAP(4, 11);
-	SWAP(5, 10);
-	SWAP(6, 9);
-	SWAP(7, 8);
-#undef SWAP
-}
-
 static inline void xor_128(u32 *x, const u32 *a, const u32 *b){
 	x[0] = a[0] ^ b[0];
 	x[1] = a[1] ^ b[1];
@@ -109,13 +75,11 @@ static inline void add_128_32(u32 *a, u32 b){
 
 // Answer to life, universe and everything.
 static inline void rol42_128(u32 *a){
-	// ROL 32
-	u32 t[4] = { a[3], a[0], a[1], a[2] };
-	// ROL 10
-	a[0] = (t[0] << 10) | (t[3] >> 22);
-	a[1] = (t[1] << 10) | (t[0] >> 22);
-	a[2] = (t[2] << 10) | (t[1] >> 22);
-	a[3] = (t[3] << 10) | (t[2] >> 22);
+	u32 t3 = a[3], t2 = a[2];
+	a[3] = (a[2] << 10) | (a[1] >> 22);
+	a[2] = (a[1] << 10) | (a[0] >> 22);
+	a[1] = (a[0] << 10) | (t3 >> 22);
+	a[0] = (t3 << 10) | (t2 >> 22);
 }
 
 // eMMC Encryption for MBR/Partitions (AES-CTR, with console-specific key)
@@ -144,7 +108,6 @@ static void dsi_make_key(u32 *key, u32 console_id_l, u32 console_id_h, int is3DS
 	rol42_128(key);
 	// iprintf("AES KEY: ROL 42:\n");
 	// print_bytes(key, 16);
-	byte_reverse_16_ip((u8*)key);
 }
 
 #ifdef _MSC_VER
@@ -166,9 +129,7 @@ void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 	u32 console_id_l = u32be(console_id + 4);
 	u32 console_id_h = u32be(console_id);
 	dsi_make_key(key, console_id_l, console_id_h, is3DS);
-	// iprintf("AES KEY:\n");
-	// print_bytes(key, 16);
-	aes_set_key_enc_128(rk, (u8*)key);
+	aes_set_key_enc_128_be(rk, (u8*)key);
 
 	u32 digest[5];
 	swiSHA1context_t ctx;
@@ -185,19 +146,23 @@ void dsi_nand_crypt_init(const u8 *console_id, const u8 *emmc_cid, int is3DS) {
 // crypt one AES block, in/out must be aligned to 32 bits
 // offset as block offset
 void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
-	u32 buf0[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
-	u32 buf1[4];
-	add_128_32(buf0, offset);
-	byte_reverse_16((u8*)buf1, (u8*)buf0);
+	u32 buf[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
+	add_128_32(buf, offset);
 	// iprintf("AES CTR:\n");
 	// print_bytes(buf, 16);
-	aes_encrypt_128(rk, (u8*)buf1, (u8*)buf1);
-	byte_reverse_16((u8*)buf0, (u8*)buf1);
-	xor_128((u32*)out, (u32*)in, buf0);
+	aes_encrypt_128_be(rk, (u8*)buf, (u8*)buf);
+	xor_128((u32*)out, (u32*)in, buf);
 }
 
 void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
+	u32 ctr[4] = { ctr_base[0], ctr_base[1], ctr_base[2], ctr_base[3] };
+	u32 xor[4];
+	add_128_32(ctr, offset);
 	for (unsigned i = 0; i < count; ++i) {
-		dsi_nand_crypt_1(out + i * AES_BLOCK_SIZE, in + i * AES_BLOCK_SIZE, offset + i);
+		aes_encrypt_128_be(rk, (u8*)ctr, (u8*)xor);
+		xor_128((u32*)out, (u32*)in, xor);
+		out += AES_BLOCK_SIZE;
+		in += AES_BLOCK_SIZE;
+		add_128_32(ctr, 1);
 	}
 }

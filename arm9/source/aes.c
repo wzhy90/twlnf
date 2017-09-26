@@ -11,15 +11,24 @@
  * C++ style comments are mine
  */
 
- // x86/x86_64 CPU's are little endian
- // popular OpenCL platforms(AMD, NVIDIA) are all little endian too
- // so pointer cast instead of bit operations
- // just make sure buffers are aligned
+// modified to work on reversed byte order input/output
+// just my OCD to eliminate some copy
+// original mbed TLS AES GET/PUT_UINT32 macros works on little endian I/O
+// but works on both big/little endian CPUs
+// seems like Nintendo used big endian hardware AES with little endian CPU
+// by byte reversing on I/O, this mimics Nintendo behavior on little endian CPU
+// calling it BE is not very accurate, it becomes little endian on big endian CPU
 
-#define GET_UINT32_LE(n, b, i) \
-	(n) = *(uint32_t*)(b + i)
-#define PUT_UINT32_LE(n, b, i) \
-	*(uint32_t*)(b + i) = (n)
+#define GET_UINT32_BE(n, b, i) \
+	((uint8_t*)&(n))[0] = (b)[i + 3]; \
+	((uint8_t*)&(n))[1] = (b)[i + 2]; \
+	((uint8_t*)&(n))[2] = (b)[i + 1]; \
+	((uint8_t*)&(n))[3] = (b)[i + 0]
+#define PUT_UINT32_BE(n, b, i) \
+	(b)[i + 0] = ((uint8_t*)&(n))[3]; \
+	(b)[i + 1] = ((uint8_t*)&(n))[2]; \
+	(b)[i + 2] = ((uint8_t*)&(n))[1]; \
+	(b)[i + 3] = ((uint8_t*)&(n))[0]
 
 // make VC happy
 #ifdef _MSC_VER
@@ -155,13 +164,13 @@ void aes_gen_tables(void)
 // so they generated several bytes more in 192 and 256 modes to simplify the loop
 // "able to hold 32 extra bytes" in their comment makes senses now
 
-void aes_set_key_enc_128(uint32_t rk[RK_LEN], const unsigned char *key) {
+void aes_set_key_enc_128_be(uint32_t rk[RK_LEN], const unsigned char *key) {
 	uint32_t *RK = rk;
 
-	GET_UINT32_LE(RK[0], key, 0);
-	GET_UINT32_LE(RK[1], key, 4);
-	GET_UINT32_LE(RK[2], key, 8);
-	GET_UINT32_LE(RK[3], key, 12);
+	GET_UINT32_BE(RK[0], key, 12);
+	GET_UINT32_BE(RK[1], key, 8);
+	GET_UINT32_BE(RK[2], key, 4);
+	GET_UINT32_BE(RK[3], key, 0);
 
 	for (unsigned i = 0; i < 10; ++i, RK += 4) {
 		RK[4] = RK[0] ^ RCON[i] ^
@@ -202,15 +211,15 @@ void aes_set_key_enc_128(uint32_t rk[RK_LEN], const unsigned char *key) {
 DTCM_BSS uint32_t X0, X1, X2, X3, Y0, Y1, Y2, Y3;
 DTCM_BSS const uint32_t *RK;
 
-ITCM_CODE void aes_encrypt_128(const uint32_t rk[RK_LEN],
+ITCM_CODE void aes_encrypt_128_be(const uint32_t rk[RK_LEN],
 	const unsigned char input[16], unsigned char output[16])
 {
 	RK = rk;
 
-	GET_UINT32_LE(X0, input, 0);
-	GET_UINT32_LE(X1, input, 4);
-	GET_UINT32_LE(X2, input, 8);
-	GET_UINT32_LE(X3, input, 12);
+	GET_UINT32_BE(X0, input, 12);
+	GET_UINT32_BE(X1, input, 8);
+	GET_UINT32_BE(X2, input, 4);
+	GET_UINT32_BE(X3, input, 0);
 
 	X0 ^= *RK++;
 	X1 ^= *RK++;
@@ -253,9 +262,9 @@ ITCM_CODE void aes_encrypt_128(const uint32_t rk[RK_LEN],
 		((uint32_t)FSb[(Y1 >> 16) & 0xFF] << 16) ^
 		((uint32_t)FSb[(Y2 >> 24) & 0xFF] << 24);
 
-	PUT_UINT32_LE(X0, output, 0);
-	PUT_UINT32_LE(X1, output, 4);
-	PUT_UINT32_LE(X2, output, 8);
-	PUT_UINT32_LE(X3, output, 12);
+	PUT_UINT32_BE(X0, output, 12);
+	PUT_UINT32_BE(X1, output, 8);
+	PUT_UINT32_BE(X2, output, 4);
+	PUT_UINT32_BE(X3, output, 0);
 }
 
