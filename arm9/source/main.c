@@ -346,6 +346,9 @@ int main(int argc, const char * const argv[]) {
 
 	select_term(&t0);
 
+	aes_test(0, 0, 0);
+	exit_with_prompt(0);
+
 	u32 bat_reg = getBatteryLevel();
 	if (!(bat_reg & 1)) {
 		iprtf("battery level too low: %08" PRIx32 "\n", bat_reg);

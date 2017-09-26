@@ -327,9 +327,10 @@ static void aes_test_1(int loops) {
 		1000.0f * DUMP_BUF_SIZE * loops / td);
 }
 
-static void print_fifo_msg(unsigned len) {
+static void print_fifo_msg(int len) {
+	// beware it returns -1 for no entry
 	while (fifoCheckDatamsgLength(FIFO_USER_01) < len) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
-	fifoGetDatamsg(FIFO_USER_01, len, dump_buf);
+	fifoGetDatamsg(FIFO_USER_01, len, (u8*)dump_buf);
 	print_bytes(dump_buf, len);
 	prt("\n");
 }
@@ -350,16 +351,22 @@ void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
 		aes_test_1(loops);
 		return;
 	}
-	prt("getting Console ID\n");
+
+	prt("EMMC CID: ");
+	fifoSendValue32(FIFO_USER_01, 4);
+	print_fifo_msg(16);
+
+	prt("Console ID as one 64bit: ");
 	fifoSendValue32(FIFO_USER_01, 5);
 	print_fifo_msg(8);
 
-	prt("getting Console ID 2nd try\n");
-	fifoSendValue32(FIFO_USER_01, 6);
+	prt("Console ID as two 32bit: ");
+	fifoSendValue32(FIFO_USER_01, 200);
 	print_fifo_msg(8);
 
 	prt("AES_CNT register: ");
-	fifoSendValue32(FIFO_USER_01, 7);
+	fifoSendValue32(FIFO_USER_01, 201);
 	print_fifo_msg(4);
+
 }
 
