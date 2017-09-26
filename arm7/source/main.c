@@ -48,6 +48,8 @@ int main() {
 
 			u64 consoleid;
 			u32 nand_cid[4];
+			u32 consoleid32[2];
+			u32 aes_reg_cnt;
 
 			switch(command) {
 				case 4:
@@ -57,6 +59,15 @@ int main() {
 				case 5:
 					consoleid = REG_CONSOLEID;
 					fifoSendDatamsg(FIFO_USER_01, 8, (u8*)&consoleid);
+					break;
+				case 6:
+					consoleid32[0] = ((vu32*)(&REG_CONSOLEID))[0];
+					consoleid32[1] = ((vu32*)(&REG_CONSOLEID))[1];
+					fifoSendDatamsg(FIFO_USER_01, 8, (u8*)consoleid32);
+					break;
+				case 7:
+					aes_reg_cnt = REG_AES_CNT;
+					fifoSendDatamsg(FIFO_USER_01, 4, (u8*)&aes_reg_cnt);
 					break;
 			}
 

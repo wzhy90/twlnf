@@ -324,13 +324,6 @@ int main(int argc, const char * const argv[]) {
 			prt("direct test mode\n");
 			mode = MODE_DIRECT_TEST;
 		} else if (argc == 5 && !strcmp(argv[1], "aes-test")) {
-			prt("AES test default\n");
-			aes_test(atoi(argv[2]), argv[3], argv[4]);
-			setCpuClock(false);
-			prt("AES test clock low\n");
-			aes_test(atoi(argv[2]), argv[3], argv[4]);
-			setCpuClock(true);
-			prt("AES test clock high\n");
 			aes_test(atoi(argv[2]), argv[3], argv[4]);
 			exit_with_prompt(0);
 		}
@@ -343,8 +336,12 @@ int main(int argc, const char * const argv[]) {
 	ret = fatInitDefault();
 	u32 td = timerTicks2usec(cpuEndTiming());
 	if (!ret) {
-		prt("\x1b[3D failed!\n");
-		exit_with_prompt(-1);
+		prt("\x1b[3D failed!\nstill wanna try(A)? quit(B)\n");
+		if(wait_keys(KEY_A | KEY_B) == KEY_A){
+			aes_test(0, 0, 0);
+		} else {
+			exit(0);
+		}
 	} else {
 		iprtf("\x1b[3D succeed, %" PRIu32 "us\n", td);
 	}

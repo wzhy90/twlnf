@@ -315,11 +315,7 @@ int restore() {
 	return -1;
 }
 
-void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
-	hex2bytes(console_id, 8, s_console_id);
-	hex2bytes(emmc_cid, 16, s_emmc_cid);
-	dsi_nand_crypt_init(console_id, emmc_cid, 0);
-
+static void aes_test_1(int loops) {
 	cpuStartTiming(0);
 	for (int i = 0; i < loops; ++i) {
 		dsi_nand_crypt((u8*)dump_buf, (u8*)dump_buf,
@@ -329,5 +325,41 @@ void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
 
 	prtf("%" PRIu32 " us %u KB\n%.2f KB/s\n", td, (DUMP_BUF_SIZE * loops) >> 10,
 		1000.0f * DUMP_BUF_SIZE * loops / td);
+}
+
+static void print_fifo_msg(unsigned len) {
+	while (fifoCheckDatamsgLength(FIFO_USER_01) < len) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
+	fifoGetDatamsg(FIFO_USER_01, len, dump_buf);
+	print_bytes(dump_buf, len);
+	prt("\n");
+}
+
+void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
+	if (loops > 0) {
+		hex2bytes(console_id, 8, s_console_id);
+		hex2bytes(emmc_cid, 16, s_emmc_cid);
+		dsi_nand_crypt_init(console_id, emmc_cid, 0);
+		
+		prt("CPU clock default\n");
+		aes_test_1(loops);
+		setCpuClock(true);
+		prt("CPU clock high\n");
+		aes_test_1(loops);
+		setCpuClock(false);
+		prt("CPU clock low\n");
+		aes_test_1(loops);
+		return;
+	}
+	prt("getting Console ID\n");
+	fifoSendValue32(FIFO_USER_01, 5);
+	print_fifo_msg(8);
+
+	prt("getting Console ID 2nd try\n");
+	fifoSendValue32(FIFO_USER_01, 6);
+	print_fifo_msg(8);
+
+	prt("AES_CNT register: ");
+	fifoSendValue32(FIFO_USER_01, 7);
+	print_fifo_msg(4);
 }
 
