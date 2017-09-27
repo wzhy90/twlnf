@@ -11,7 +11,6 @@
 #include "term256ext.h"
 
 extern const char nand_root[];
-extern const char list_dir[];
 
 extern swiSHA1context_t sha1ctx;
 
@@ -355,8 +354,7 @@ int cp(const char *from, const char *to) {
 
 // this is evolved from parse_sha1sum so the structure is a bit strange
 int scripting(const char *scriptname, int dry_run, unsigned *p_size){
-	sniprintf(name_buf0, LINE_BUF_LEN, "%s%s", list_dir, scriptname);
-	FILE *f = fopen(name_buf0, "r");
+	FILE *f = fopen(scriptname, "r");
 	unsigned irregular = 0;
 	unsigned size = 0;
 	unsigned missing = 0;

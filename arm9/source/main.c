@@ -29,42 +29,37 @@ const char nand_root[] = "NAND:/";
 #define CyanOnBlk "\x1b[32;1;40m"
 #define BlkOnRed "\x1b[31;1;7;30m"
 
+// 1024 entries ought to be enough for anybody
+#define FILE_LIST_LEN 0x400
+#define MAX_FILE_NAME_LEN 0x20
+
 typedef struct {
-	const char *name;
+	char name[MAX_FILE_NAME_LEN];
 	size_t size;
 }file_list_item_t;
 
-#define FILE_LIST_LEN 0x100
+#define MAX_PATH 0x100
 
-const char list_dir[] = "scripts/";
-const char footer[] = "(A)select (B)quit (START)menu";
+char browse_path[MAX_PATH];
+const char footer[] = "(A)select (B)up (START)menu (SELECT)quit";
 file_list_item_t file_list[FILE_LIST_LEN];
-unsigned file_list_len;
-unsigned view_pos;
-unsigned cur_pos;
+int file_list_len;
+int view_pos;
+int cur_pos;
+
+char path_buf[MAX_PATH];
 
 #define VIEW_ROWS (TERM_ROWS - 2)
 
 void file_list_add(const char *name, size_t size, void *_) {
-	if (file_list_len == FILE_LIST_LEN) {
-		return;
-	}
-	if (size == INVALID_SIZE) {
-		// filter out directory
+	if (file_list_len >= FILE_LIST_LEN) {
 		return;
 	}
 	unsigned len_name = strlen(name);
-	if (len_name < 5) {
-		// shortest valid name would be like "1.nfs"
+	if (len_name > MAX_FILE_NAME_LEN - 1) {
 		return;
 	}
-	// abbreviation for NAND File Script
-	if (strcmp(".nfs", name + len_name - 4)){
-		return;
-	}
-	char *name_copy = malloc(len_name + 1);
-	strcpy(name_copy, name);
-	file_list[file_list_len].name = name_copy;
+	strcpy(file_list[file_list_len].name, name);
 	file_list[file_list_len].size = size;
 	++file_list_len;
 }
@@ -79,14 +74,20 @@ void draw_file_list() {
 	int len_size = sniprintf(size_str_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
 	prt(Rst Cls BlkOnWht);
 	// iprtf("%s%s%s" seems dumb
-	prt(list_dir);
-	prt(whitespace + strlen(list_dir) + len_size);
+	// TODO: handle if browse_path too long
+	prt(browse_path);
+	prt(whitespace + strlen(browse_path) + len_size);
 	prt(size_str_buf);
 	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
 			prt(i == cur_pos ? CyanOnBlk : Rst);
 			file_list_item_t *item = &file_list[view_pos + i];
-			len_size = sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
+			if (item->size != INVALID_SIZE) {
+				sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
+			} else {
+				strcpy(size_str_buf, "<dir>");
+			}
+			len_size = strlen(size_str_buf);
 			// cut off the name if too long
 			int len_name = strlen(item->name);
 			if (len_name + 1 + len_size > TERM_COLS) {
@@ -110,7 +111,7 @@ void draw_file_list() {
 }
 
 void menu_move(int move) {
-	unsigned last_pos = file_list_len < VIEW_ROWS ? file_list_len - 1 : VIEW_ROWS - 1;
+	int last_pos = file_list_len < VIEW_ROWS ? file_list_len - 1 : VIEW_ROWS - 1;
 	switch (move) {
 	case -1:
 		if (cur_pos > 0) {
@@ -224,11 +225,63 @@ void walk_cb_dump(const char *name, int is_dir, void *_) {
 	}
 }
 
+void menu_cd(const char *name) {
+	int len_path = strlen(browse_path);
+	if (len_path == 0) {
+		getcwd(browse_path, MAX_PATH - 1);
+		// make sure browse_path always ends with '/'
+		len_path = strlen(browse_path);
+		if (browse_path[len_path - 1] != '/') {
+			browse_path[len_path] = '/';
+			browse_path[len_path + 1] = 0;
+		}
+	} else if (name == 0) {
+		// cd .., find the path delimiter
+		int i;
+		for (i = len_path - 2; i > 0; --i) {
+			if (browse_path[i] == '/') {
+				break;
+			}
+		}
+		if (i == 0) {
+			prt("already at root\n");
+			return;
+		}
+		// cut it here
+		browse_path[i + 1] = 0;
+	} else {
+		int len_name = strlen(name);
+		if (len_path + len_name + 1 > MAX_PATH - 1) {
+			prt("max path length exceeded\n");
+			return;
+		}
+		strcpy(browse_path + len_path, name);
+		browse_path[len_path + len_name] = '/';
+		browse_path[len_path + len_name + 1] = 0;
+	}
+	// we are now at the new path
+	file_list_len = 0;
+	listdir(browse_path, 0, file_list_add, 0);
+	view_pos = 0;
+	cur_pos = 0;
+	draw_file_list();
+}
+
 void menu_action(const char *name) {
+	int len_name = strlen(name);
+	if (len_name < 4 || strcmp(name + len_name - 4, ".nfs")) {
+		prt("don't know how to handle this file\n");
+		return;
+	}
+	if (strlen(browse_path) + len_name > MAX_PATH - 1) {
+		prt("max path length exceeded\n");
+		return;
+	}
 	iprtf("dry run: %s\n", name);
+	sprintf(path_buf, "%s%s", browse_path, name);
 	unsigned size;
 	// dry run
-	int ret = scripting(name, 1, &size);
+	int ret = scripting(path_buf, 1, &size);
 	iprtf("dry run returned %d\n", ret);
 	if (ret != 0) {
 		return;
@@ -239,7 +292,7 @@ void menu_action(const char *name) {
 	}
 	prt("execute? Yes(A)/No(B)\n");
 	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
-		ret = scripting(name, 0, 0);
+		ret = scripting(path_buf, 0, 0);
 		// TODO: some scripts might not induce writes
 		++executions;
 		iprtf("execution returned %d\n", ret);
@@ -248,23 +301,16 @@ void menu_action(const char *name) {
 }
 
 void menu() {
-	// list
-	file_list_len = 0;
-	listdir(list_dir, 0, file_list_add, 0);
-	if (file_list_len == 0) {
-		iprtf("no script in %s\n", list_dir);
-		exit_with_prompt(-1);
-	}
-	// init menu
-	view_pos = 0;
-	cur_pos = 0;
-	draw_file_list();
+	// init list
+	browse_path[0] = 0;
+	menu_cd(0);
+	// button handling
 	while (1) {
 		swiWaitForVBlank();
 		scanKeys();
 		uint32 keys = keysDown();
 		int needs_redraw = 0;
-		if (keys & KEY_B) {
+		if (keys & KEY_SELECT) {
 			prt("unmount and quit(A)? cancel(B)\n");
 			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
 				break;
@@ -282,8 +328,16 @@ void menu() {
 				menu_move(2);
 			}
 			needs_redraw = 1;
+		}else if(keys & KEY_B){
+			menu_cd(0);
 		} else if (keys & KEY_A) {
-			menu_action(file_list[view_pos + cur_pos].name);
+			file_list_item_t *fli = file_list + view_pos + cur_pos;
+			if (fli->size == INVALID_SIZE) {
+				// change directory
+				menu_cd(fli->name);
+			} else {
+				menu_action(fli->name);
+			}
 		} else if ((keys & KEY_START)) {
 			prt("\t(A) list NAND directories\n"
 				"\t(X) list NAND files\n"
@@ -401,7 +455,7 @@ int main(int argc, const char * const argv[]) {
 		prt("\x1b[3D " BlkOnRed "failed!\n" Rst);
 		exit_with_prompt(-1);
 	} else {
-		iprtf("\x1b[3D succeed, %" PRIu32 "us\n", td);
+		iprtf("\x1b[3D succeed, %" PRIu32 "\xe6s\n", td);
 	}
 
 	if (mode == MODE_IMAGE_TEST) {
