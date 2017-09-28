@@ -25,7 +25,7 @@ DATA		:=
 #---------------------------------------------------------------------------------
 ARCH	:=	-mthumb -mthumb-interwork
 
-CFLAGS	:=	-g -Wall -O2\
+CFLAGS	:=	-g -Wall -Werror -O2\
 			-march=armv5te -mtune=arm946e-s \
 			-DVERSION=\"$(VERSION)\" \
 			$(ARCH)

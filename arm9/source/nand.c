@@ -112,7 +112,7 @@ int get_ids() {
 int test_sector0(int *p_is3DS) {
 	int is3DS = parse_ncsd(sector_buf, 0) == 0;
 	// iprintf("sector 0 is %s\n", is3DS ? "3DS" : "DSi");
-	dsi_nand_crypt_init(console_id, emmc_cid, is3DS);
+	dsi_crypt_init(console_id, emmc_cid, is3DS);
 	dsi_nand_crypt(sector_buf, sector_buf, 0, SECTOR_SIZE / AES_BLOCK_SIZE);
 	if (p_is3DS) {
 		*p_is3DS = is3DS;
@@ -318,7 +318,7 @@ int restore() {
 void aes_test(int loops, const char * s_console_id, const char * s_emmc_cid) {
 	hex2bytes(console_id, 8, s_console_id);
 	hex2bytes(emmc_cid, 16, s_emmc_cid);
-	dsi_nand_crypt_init(console_id, emmc_cid, 0);
+	dsi_crypt_init(console_id, emmc_cid, 0);
 
 	cpuStartTiming(0);
 	for (int i = 0; i < loops; ++i) {

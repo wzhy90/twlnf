@@ -1,8 +1,9 @@
 
 #include <nds.h>
-// #include <stdio.h>
 #include "../mbedtls/aes.h"
+#include "../term256/term256ext.h"
 #include "crypto.h"
+#include "ticket0.h"
 #include "utils.h"
 
 // more info:
@@ -12,6 +13,9 @@
 
 static const u32 DSi_NAND_KEY_Y[4] =
 	{0x0ab9dc76u, 0xbd4dc4d3u, 0x202ddd1du, 0xe1a00005u};
+
+static const u32 DSi_ES_KEY_Y[4] =
+	{0x8b5acce5u, 0x72c9d056u, 0xdce8179cu, 0xa9361239u};
 
 static const u32 DSi_KEY_MAGIC[4] =
 	{0x1a4f3e79u, 0x2a680f5fu, 0x29590258u, 0xfffefb4eu};
@@ -72,25 +76,33 @@ static inline void rol42_128(u32 *a){
 	a[0] = (t3 << 10) | (t2 >> 22);
 }
 
-static void make_nand_key_x_dsi(u32 *key, const u32* console_id) {
-	key[0] = console_id[0];
-	key[1] = console_id[0] ^ 0x24ee6906;
-	key[2] = console_id[1] ^ 0xe65b601d;
-	key[3] = console_id[1];
-}
-
-static void make_nand_key_x_3ds(u32 *key, const u32* console_id) {
-	key[0] = (console_id[0] ^ 0xb358a6af) | 0x80000000;
-	key[1] = 0x544e494e;
-	key[2] = 0x4f444e45;
-	key[3] = console_id[1] ^ 0x08c267b7;
-}
-
-// xor_128 can work in place, so this can also work if key = key_x
-static void make_normal_key(u32 *key, const u32 *key_x, const u32 *key_y) {
+static void dsi_aes_set_key(u32 *rk, const u32 *console_id, key_mode_t mode) {
+	u32 key[4];
+	switch (mode) {
+	case NAND:
+		key[0] = console_id[0];
+		key[1] = console_id[0] ^ 0x24ee6906;
+		key[2] = console_id[1] ^ 0xe65b601d;
+		key[3] = console_id[1];
+		break;
+	case NAND_3DS:
+		key[0] = (console_id[0] ^ 0xb358a6af) | 0x80000000;
+		key[1] = 0x544e494e;
+		key[2] = 0x4f444e45;
+		key[3] = console_id[1] ^ 0x08c267b7;
+		break;
+	case ES:
+		key[0] = 0x4e00004a;
+		key[1] = 0x4a00004e;
+		key[2] = console_id[1] ^ 0xc80c4b72;
+		key[3] = console_id[0];
+		break;
+	default:
+		break;
+	}
 	// Key = ((Key_X XOR Key_Y) + FFFEFB4E295902582A680F5F1A4F3E79h) ROL 42
 	// equivalent to F_XY in twltool/f_xy.c
-	xor_128(key, key_x, key_y);
+	xor_128(key, key, mode == ES ? DSi_ES_KEY_Y : DSi_NAND_KEY_Y);
 	// iprintf("AES KEY: XOR KEY_Y:\n");
 	// print_bytes(key, 16);
 	add_128(key, DSi_KEY_MAGIC);
@@ -99,35 +111,31 @@ static void make_normal_key(u32 *key, const u32 *key_x, const u32 *key_y) {
 	rol42_128(key);
 	// iprintf("AES KEY: ROL 42:\n");
 	// print_bytes(key, 16);
+	aes_set_key_enc_128_be(rk, (u8*)key);
 }
 
 #ifdef _MSC_VER
 #define DTCM_BSS
 #endif
 
-DTCM_BSS static u32 nand_ctr_rk[RK_LEN];
+static u32 nand_ctr_rk[RK_LEN];
+static u32 es_rk[RK_LEN];
 static u32 nand_ctr_iv[4];
 
 static int tables_generated = 0;
 
-void dsi_nand_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
+void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
 	if (tables_generated == 0) {
 		aes_gen_tables();
 		tables_generated = 1;
 	}
-
-	u32 key[4], console_id[2];
-	// console_id from hex string usually comes in big endian
+	
+	u32 console_id[2];
 	GET_UINT32_BE(console_id[0], console_id_be, 4);
 	GET_UINT32_BE(console_id[1], console_id_be, 0);
-	if (is3DS) {
-		make_nand_key_x_3ds(key, console_id);
-	} else {
-		make_nand_key_x_dsi(key, console_id);
-	}
-	make_normal_key(key, key, DSi_NAND_KEY_Y);
 
-	aes_set_key_enc_128_be(nand_ctr_rk, (u8*)key);
+	dsi_aes_set_key(nand_ctr_rk, console_id, is3DS ? NAND_3DS : NAND);
+	dsi_aes_set_key(es_rk, console_id, ES);
 
 	u32 digest[5];
 	swiSHA1context_t ctx;
@@ -141,24 +149,27 @@ void dsi_nand_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS)
 	nand_ctr_iv[3] = digest[3];
 }
 
-// crypt one AES block, in/out must be aligned to 32 bit
-// offset as block offset
+static inline void aes_ctr(const u32 *rk, const u32 *ctr, u32 *in, u32 *out) {
+	u32 xor[4];
+	aes_encrypt_128_be(rk, (u8*)ctr, (u8*)xor);
+	xor_128(out, in, xor);
+}
+
+// crypt one block, in/out must be aligned to 32 bit(restriction induced by xor_128)
+// offset as block offset, block as AES block
 void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
-	u32 buf[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
-	add_128_32(buf, offset);
+	u32 ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
+	add_128_32(ctr, offset);
 	// iprintf("AES CTR:\n");
 	// print_bytes(buf, 16);
-	aes_encrypt_128_be(nand_ctr_rk, (u8*)buf, (u8*)buf);
-	xor_128((u32*)out, (u32*)in, buf);
+	aes_ctr(nand_ctr_rk, ctr, (u32*)in, (u32*)out);
 }
 
 void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
 	u32 ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
-	u32 xor[4];
 	add_128_32(ctr, offset);
 	for (unsigned i = 0; i < count; ++i) {
-		aes_encrypt_128_be(nand_ctr_rk, (u8*)ctr, (u8*)xor);
-		xor_128((u32*)out, (u32*)in, xor);
+		aes_ctr(nand_ctr_rk, ctr, (u32*)in, (u32*)out);
 		out += AES_BLOCK_SIZE;
 		in += AES_BLOCK_SIZE;
 		add_128_32(ctr, 1);
@@ -166,3 +177,117 @@ void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
 }
 
 // http://problemkaputt.de/gbatek.htm#dsiesblockencryption
+// works in place, also must be aligned to 32 bit
+// why is it called ES?
+int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
+	es_block_footer_t *footer;
+	footer = (es_block_footer_t*)(buf + buf_len - sizeof(es_block_footer_t));
+	// backup mac since it might be overwritten by padding
+	// and also nonce, it becomes garbage after decryption
+	u8 ccm_mac[AES_CCM_MAC_LEN];
+	u8 nonce[AES_CCM_NONCE_LEN];
+	memcpy(ccm_mac, footer->ccm_mac, AES_CCM_MAC_LEN);
+	memcpy(nonce, footer->nonce, AES_CCM_NONCE_LEN);
+
+	u32 ctr32[4], pad32[4], mac32[4];
+// I'm too paranoid to use more stack variables
+#define ctr ((u8*)ctr32)
+#define pad ((u8*)pad32)
+#define mac ((u8*)mac32)
+#define zero(a) static_assert(sizeof(a[0]) == 4, "invalid operand"); \
+	a[0] = 0; a[1] = 0; a[2] = 0; a[3] = 0
+	if (mode == DECRYPT) {
+		// decrypt footer
+		zero(ctr32);
+		memcpy(ctr + 1, nonce, AES_CCM_NONCE_LEN);
+		// footer might not be 32 bit aligned after all, so we copy it out to decrypt
+		memcpy(pad, footer->encrypted, AES_BLOCK_SIZE);
+		aes_ctr(es_rk, ctr32, pad32, pad32);
+		memcpy(footer->encrypted, pad, AES_BLOCK_SIZE);
+	}
+	// check decrypted footer
+	if (footer->fixed_3a != 0x3a) {
+		iprtf("ES block footer offset 0x10 should be 0x3a, got 0x%02x\n", footer->fixed_3a);
+		return 1;
+	}
+	u32 block_size;
+	GET_UINT32_BE(block_size, footer->len32be, 0);
+	block_size &= 0xffffff;
+	if (block_size + sizeof(es_block_footer_t) != buf_len) {
+		iprtf("block size in footer doesn't match, %06x != %06x\n",
+			(unsigned)block_size, (unsigned)(buf_len - sizeof(es_block_footer_t)));
+		return 1;
+	}
+	// padd to multiple of 16
+	u32 remainder = block_size & 0xf;
+	if (remainder != 0) {
+		zero(pad32);
+		if (mode == DECRYPT) {
+			ctr32[0] = (block_size >> 4) + 1;
+			memcpy(ctr + 3, nonce, AES_CCM_NONCE_LEN);
+			ctr[0xf] = 2;
+			aes_ctr(es_rk, ctr32, pad32, pad32);
+		}
+		memcpy(buf + block_size, pad + remainder, 16 - remainder);
+		block_size += 16 - remainder;
+	}
+	// AES-CCM MAC
+	mac32[0] = block_size;
+	memcpy(mac + 3, nonce, AES_CCM_NONCE_LEN);
+	mac[0xf] = 0x3a;
+	aes_encrypt_128_be(es_rk, mac, mac);
+	// AES-CCM CTR
+	ctr32[0] = 0;
+	memcpy(ctr + 3, nonce, AES_CCM_NONCE_LEN);
+	ctr[0xf] = 2;
+	// AES-CCM start
+	zero(pad32);
+	aes_ctr(es_rk, ctr32, pad32, pad32);
+	add_128_32(ctr32, 1);
+	// AES-CCM loop
+	if (mode == DECRYPT) {
+		for (unsigned i = 0; i < block_size; i += 16) {
+			aes_ctr(es_rk, ctr32, (u32*)(buf + i), (u32*)(buf + i));
+			add_128_32(ctr32, 1);
+			xor_128(mac32, mac32, (u32*)(buf + i));
+			aes_encrypt_128_be(es_rk, mac, mac);
+		}
+	} else {
+		for (unsigned i = 0; i < block_size; i += 16) {
+			xor_128(mac32, mac32, (u32*)(buf + i));
+			aes_encrypt_128_be(es_rk, mac, mac);
+			aes_ctr(es_rk, ctr32, (u32*)(buf + i), (u32*)(buf + i));
+			add_128_32(ctr32, 1);
+		}
+	}
+	xor_128(mac32, mac32, pad32);
+	if (mode == DECRYPT) {
+		if (memcmp(mac, ccm_mac, 16) == 0) {
+			if (remainder != 0) {
+				// restore mac
+				memcpy(footer->ccm_mac, ccm_mac, AES_CCM_MAC_LEN);
+			}
+			// restore nonce
+			memcpy(footer->nonce, nonce, AES_CCM_NONCE_LEN);
+			return 0;
+		} else {
+			prt("MAC verification failed\n");
+			return 1;
+		}
+	} else {
+		memcpy(footer->ccm_mac, mac, AES_CCM_MAC_LEN);
+		// AES-CTR crypt later half of footer
+		zero(ctr32);
+		memcpy(ctr + 1, nonce, AES_CCM_NONCE_LEN);
+		memcpy(pad, footer->encrypted, AES_BLOCK_SIZE);
+		aes_ctr(es_rk, ctr32, pad32, pad32);
+		memcpy(footer->encrypted, pad, AES_BLOCK_SIZE);
+		// restore nonce
+		memcpy(footer->nonce, nonce, AES_CCM_NONCE_LEN);
+		return 0;
+	}
+#undef ctr
+#undef pad
+#undef mac
+#undef zero
+}
