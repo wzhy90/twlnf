@@ -5,15 +5,12 @@
 #include <stdio.h>
 #include <errno.h>
 #include <malloc.h>
-#include <inttypes.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include "../term256/term256ext.h"
+#include "heap.h"
 #include "walk.h"
-
-#define NAME_BUF_LEN 0x100
-static char name_buf[NAME_BUF_LEN];
 
 #define STACK_DEPTH 0x400
 
@@ -25,9 +22,13 @@ static unsigned stack_max_depth;
 static unsigned longest_path;
 
 // I suppose no need for a linked stack
-static void s_alloc() {
+static int s_alloc() {
 	base = memalign(sizeof(void*), sizeof(void*) * STACK_DEPTH);
+	if (base == 0) {
+		return -1;
+	}
 	head = 0;
+	return 0;
 }
 
 static void s_free() {
@@ -41,10 +42,10 @@ static int s_push(void *p) {
 		if (head > stack_max_depth) {
 			stack_max_depth = head;
 		}
-		return 1;
+		return 0;
 	} else {
 		prt("stack limit exceed\n");
-		return 0;
+		return -1;
 	}
 }
 
@@ -64,12 +65,16 @@ static void s_deep_free() {
 	free(base);
 }
 
-int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_param) {
+// walk doesn't use heap.c, since the stack could be dramatically deeper
+// and it doesn't do critical jobs so malloc failure is fine
+int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_cb_param) {
 	// init the stack
 	stack_max_depth = 0;
 	stack_usage = 0;
 	longest_path = 0;
-	s_alloc();
+	if (s_alloc() != 0) {
+		return -1;
+	}
 	char *p = (char*)malloc(strlen(dir) + 1);
 	if (p == 0) {
 		return -1;
@@ -78,7 +83,7 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 	s_push(p);
 	// walk the stack
 	while ((p = (char*)s_pop()) != 0) {
-		size_t len_parent = strlen(p);
+		unsigned len_parent = strlen(p);
 		DIR * d = opendir(p);
 		if (d == 0) {
 			free(p);
@@ -95,10 +100,18 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 			}
 			char *fullname = (char*)malloc(full_len + 1);
 			if (fullname == 0) {
+				closedir(d);
+				free(p);
 				s_deep_free();
 				return -1;
 			}
-			siprintf(fullname, p[strlen(p) - 1] == '/' ? "%s%s" : "%s/%s", p, de->d_name);
+			strcpy(fullname, p);
+			if (p[len_parent - 1] == '/') {
+				strcpy(fullname + len_parent, de->d_name);
+			} else {
+				fullname[len_parent] = '/';
+				strcpy(fullname + len_parent + 1, de->d_name);
+			}
 			struct stat s;
 			if (stat(fullname, &s) != 0) {
 				iprtf("weird stat failure, errno: %d\n", errno);
@@ -107,20 +120,22 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 			}
 			if ((s.st_mode & S_IFMT) == S_IFREG) {
 				if (callback != 0) {
-					callback(fullname, 0, p_cb_param);
+					callback(fullname, s.st_size, p_cb_param);
 				}
 				free(fullname);
 			} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
 				if (callback != 0) {
-					callback(fullname, 1, p_cb_param);
+					callback(fullname, INVALID_SIZE, p_cb_param);
 				}
 				if (s_push(fullname) == 0) {
 					free(fullname);
+					closedir(d);
+					free(p);
 					s_deep_free();
 					return -2;
 				}
 			} else {
-				iprtf("weird type 0x%08" PRIx32 ": %s\n", s.st_mode & S_IFMT, fullname);
+				iprtf("weird type 0x%08lx: %s\n", s.st_mode & S_IFMT, fullname);
 				free(fullname);
 			}
 		}
@@ -132,28 +147,34 @@ int walk(const char *dir, void (*callback)(const char*, int, void*), void *p_cb_
 	return 0;
 }
 
-void listdir(const char *dir, int want_full, void(*callback)(const char*, size_t, void*), void *p_cb_param) {
+void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t, void*), void *p_cb_param) {
 	DIR * d = opendir(dir);
 	if (d == 0) {
 		return;
 	}
+	char *name_buf = alloc_buf();
 	struct dirent * de;
 	while ((de = readdir(d)) != 0) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 			continue;
 		}
-		sniprintf(name_buf, NAME_BUF_LEN, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
+		sniprintf(name_buf, BUF_SIZE, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
 		struct stat s;
 		if (stat(name_buf, &s) != 0) {
 			iprtf("weird stat failure, errno: %d\n", errno);
 			continue;
 		}
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
-			callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param);
+			if (callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param) != 0) {
+				break;
+			}
 		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
 			// use INVALID_SIZE as is_dir
-			callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param);
+			if (callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param) != 0) {
+				break;
+			}
 		}
 	}
 	closedir(d);
+	free_buf(name_buf);
 }

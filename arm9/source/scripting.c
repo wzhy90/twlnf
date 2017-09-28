@@ -162,7 +162,7 @@ static int cmd_rm(const char * arg) {
 					file_found = 1;
 					rm(name_buf1);
 					// we break the loop here since behavior of readdir() becomes undefined in this situation
-					// this is also why listdir is not used
+					// this is also why list_dir is not used
 					// http://pubs.opengroup.org/onlinepubs/007908799/xsh/readdir.html
 					// QUOTE: If a file is removed from or added to the directory after the most recent call to opendir() or rewinddir(), whether a subsequent call to readdir() returns an entry for that file is unspecified.
 					break;

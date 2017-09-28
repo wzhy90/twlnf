@@ -1,14 +1,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <malloc.h>
+#include <sys/stat.h>
 #include <nds.h>
 #include <fat.h>
+#include "../term256/term256.h"
+#include "../term256/term256ext.h"
+#include "../mbedtls/aes.h"
+#include "heap.h"
 #include "utils.h"
 #include "walk.h"
 #include "nand.h"
 #include "scripting.h"
-#include "../term256/term256.h"
-#include "../term256/term256ext.h"
+#include "ticket0.h"
+#include "tmd.h"
 
 #define SHA1_LEN 20
 
@@ -24,91 +30,94 @@ unsigned executions = 0;
 const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
 
+const char dump_dir[] = "dump";
+
 #define Cls "\x1b[2J"
 #define Rst "\x1b[0m"
 #define BlkOnWht "\x1b[30;47m"
 #define CyanOnBlk "\x1b[32;1;40m"
+#define Red "\x1b[31;1m"
 #define BlkOnRed "\x1b[31;1;7;30m"
 
-// 1024 entries ought to be enough for anybody
-#define FILE_LIST_LEN 0x400
-#define MAX_FILE_NAME_LEN 0x20
+#define FILE_LIST_LEN 0x100
+#define FILE_LIST_NAME_LEN 0x30
 
 typedef struct {
-	char name[MAX_FILE_NAME_LEN];
 	size_t size;
+	char name[FILE_LIST_NAME_LEN];
 }file_list_item_t;
 
-#define MAX_PATH 0x100
-
-char browse_path[MAX_PATH];
+char *browse_path;
 const char footer[] = "(A)select (B)up (START)menu (SELECT)quit";
-file_list_item_t file_list[FILE_LIST_LEN];
+static_assert(sizeof(footer) - 1 <= TERM_COLS, "footer too long");
+file_list_item_t *file_list;
 int file_list_len;
 int view_pos;
 int cur_pos;
 
-char path_buf[MAX_PATH];
-
 #define VIEW_ROWS (TERM_ROWS - 2)
 
-void file_list_add(const char *name, size_t size, void *_) {
+int file_list_add(const char *name, size_t size, void *_) {
 	if (file_list_len >= FILE_LIST_LEN) {
-		return;
+		return -1;
 	}
 	unsigned len_name = strlen(name);
-	if (len_name > MAX_FILE_NAME_LEN - 1) {
-		return;
+	if (len_name > FILE_LIST_NAME_LEN - 1) {
+		return 0;
 	}
 	strcpy(file_list[file_list_len].name, name);
 	file_list[file_list_len].size = size;
 	++file_list_len;
+	return 0;
 }
 
-char size_str_buf[TERM_COLS];
-char name_str_buf[TERM_COLS];
 const char whitespace[] = "                                          ";
 static_assert(sizeof(whitespace) == TERM_COLS + 1, "the white space buf is not long enough");
 
 void draw_file_list() {
+	char * size_buf = alloc_buf();
+	char * line_buf = alloc_buf();
 	select_term(&t1);
-	int len_size = sniprintf(size_str_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
+	int len_size = sniprintf(size_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
 	prt(Rst Cls BlkOnWht);
 	// iprtf("%s%s%s" seems dumb
 	// TODO: handle if browse_path too long
 	prt(browse_path);
 	prt(whitespace + strlen(browse_path) + len_size);
-	prt(size_str_buf);
+	prt(size_buf);
 	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
 			prt(i == cur_pos ? CyanOnBlk : Rst);
 			file_list_item_t *item = &file_list[view_pos + i];
 			if (item->size != INVALID_SIZE) {
-				sniprintf(size_str_buf, TERM_COLS, "%u", item->size);
+				sniprintf(size_buf, TERM_COLS, "%u", item->size);
 			} else {
-				strcpy(size_str_buf, "<dir>");
+				strcpy(size_buf, "<dir>");
 			}
-			len_size = strlen(size_str_buf);
+			len_size = strlen(size_buf);
 			// cut off the name if too long
 			int len_name = strlen(item->name);
 			if (len_name + 1 + len_size > TERM_COLS) {
-				strncpy(name_str_buf, item->name, TERM_COLS - len_size - 5);
-				strcpy(name_str_buf + TERM_COLS - len_size - 5, " ...");
-				prt(name_str_buf);
+				strncpy(line_buf, item->name, TERM_COLS - len_size - 5);
+				strcpy(line_buf + TERM_COLS - len_size - 5, " ...");
+				prt(line_buf);
 				prt(" ");
-				prt(size_str_buf);
+				prt(size_buf);
 			} else {
 				prt(item->name);
 				prt(whitespace + len_name + len_size);
-				prt(size_str_buf);
+				prt(size_buf);
 			}
 		}
 	}
-	iprtf("\x1b[%d;1H", TERM_ROWS);
-	prt(BlkOnWht);
+#define TO_STRING_LITERAL(r) #r
+	prt("\x1b[" TO_STRING_LITERAL(TERM_ROWS) ";1H" BlkOnWht);
+#undef TO_STRING_LITERAL
 	prt(footer);
 	prt(whitespace + strlen(footer));
 	select_term(&t0);
+	free_buf(size_buf);
+	free_buf(line_buf);
 }
 
 void menu_move(int move) {
@@ -173,8 +182,8 @@ unsigned wait_keys(unsigned keys) {
 	}
 }
 
-void walk_cb_lst_file(const char *name, int is_dir, void *p_param) {
-	if (is_dir) {
+void walk_cb_lst_file(const char *name, size_t size, void *p_param) {
+	if (size == INVALID_SIZE) {
 		return;
 	}
 	name += sizeof(nand_root) - 1;
@@ -182,8 +191,8 @@ void walk_cb_lst_file(const char *name, int is_dir, void *p_param) {
 	fiprintf((FILE*)p_param, "%s\n", name);
 }
 
-void walk_cb_lst_dir(const char *name, int is_dir, void *p_param) {
-	if (!is_dir) {
+void walk_cb_lst_dir(const char *name, size_t size, void *p_param) {
+	if (size != INVALID_SIZE) {
 		return;
 	}
 	name += sizeof(nand_root) - 1;
@@ -191,8 +200,8 @@ void walk_cb_lst_dir(const char *name, int is_dir, void *p_param) {
 	fiprintf((FILE*)p_param, "%s\n", name);
 }
 
-void walk_cb_sha1(const char *name, int is_dir, void *p_param) {
-	if (is_dir) {
+void walk_cb_sha1(const char *name, size_t size, void *p_param) {
+	if (size == INVALID_SIZE) {
 		return;
 	}
 	const char *rname = name + sizeof(nand_root) - 1;
@@ -209,15 +218,21 @@ void walk_cb_sha1(const char *name, int is_dir, void *p_param) {
 	fiprintf((FILE*)p_param, " *%s\n", rname);
 }
 
-char name_buf[0x200];
-void walk_cb_dump(const char *name, int is_dir, void *_) {
-	if (is_dir) {
+void walk_cb_dump(const char *name, size_t size, void *p_param) {
+	char *name_buf = (char *)p_param;
+	if (size == INVALID_SIZE) {
+		mkdir(name, S_IRWXU | S_IRWXG | S_IRWXO);
 		return;
 	}
 	const char *rname = name + sizeof(nand_root) - 1;
 	iprtf("%s", rname);
-	siprintf(name_buf, "dump/%s", rname);
-	mkdir_parent(0, name_buf);
+	if (sizeof(dump_dir) + strlen(rname) > BUF_SIZE) {
+		prt(" name too long, skipped\n");
+		return;
+	}
+	strcpy(name_buf, dump_dir);
+	name_buf[sizeof(dump_dir) - 1] = '/';
+	strcpy(name_buf + sizeof(dump_dir), rname);
 	int ret = cp(name, name_buf);
 	if (ret != 0) {
 		iprtf(" failed(%d)\n", ret);
@@ -229,7 +244,7 @@ void walk_cb_dump(const char *name, int is_dir, void *_) {
 void menu_cd(const char *name) {
 	int len_path = strlen(browse_path);
 	if (len_path == 0) {
-		getcwd(browse_path, MAX_PATH - 1);
+		getcwd(browse_path, BUF_SIZE - 1);
 		// make sure browse_path always ends with '/'
 		len_path = strlen(browse_path);
 		if (browse_path[len_path - 1] != '/') {
@@ -252,7 +267,7 @@ void menu_cd(const char *name) {
 		browse_path[i + 1] = 0;
 	} else {
 		int len_name = strlen(name);
-		if (len_path + len_name + 1 > MAX_PATH - 1) {
+		if (len_path + len_name + 1 > BUF_SIZE - 1) {
 			prt("max path length exceeded\n");
 			return;
 		}
@@ -262,27 +277,18 @@ void menu_cd(const char *name) {
 	}
 	// we are now at the new path
 	file_list_len = 0;
-	listdir(browse_path, 0, file_list_add, 0);
+	list_dir(browse_path, 0, file_list_add, 0);
 	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();
 }
 
-void menu_action(const char *name) {
-	int len_name = strlen(name);
-	if (len_name < 4 || strcmp(name + len_name - 4, ".nfs")) {
-		prt("don't know how to handle this file\n");
-		return;
-	}
-	if (strlen(browse_path) + len_name > MAX_PATH - 1) {
-		prt("max path length exceeded\n");
-		return;
-	}
+void menu_action_script(const char *name, const char *full_path) {
+	// NAND file script
 	iprtf("dry run: %s\n", name);
-	sprintf(path_buf, "%s%s", browse_path, name);
 	unsigned size;
 	// dry run
-	int ret = scripting(path_buf, 1, &size);
+	int ret = scripting(full_path, 1, &size);
 	iprtf("dry run returned %d\n", ret);
 	if (ret != 0) {
 		return;
@@ -293,7 +299,7 @@ void menu_action(const char *name) {
 	}
 	prt("execute? Yes(A)/No(B)\n");
 	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
-		ret = scripting(path_buf, 0, 0);
+		ret = scripting(full_path, 0, 0);
 		// TODO: some scripts might not induce writes
 		++executions;
 		iprtf("execution returned %d\n", ret);
@@ -303,8 +309,68 @@ void menu_action(const char *name) {
 	}
 }
 
+void menu_action_tmd(const char *name, const char *full_path) {
+	// TMD file
+	u8 *tmd_buf = malloc(sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t));
+	if (tmd_buf == 0) {
+		prt("failed to alloc memory for TMD\n");
+		return;
+	}
+	if (load_block_from_file(tmd_buf, full_path, 0,
+		sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t)) != 0) {
+		prt("failed to load TMD\n");
+		free(tmd_buf);
+		return;
+	}
+	tmd_header_v0_t *header = (tmd_header_v0_t*)tmd_buf;
+	u32 title_id_0, title_id_1;
+	GET_UINT32_BE(title_id_0, header->title_id, 0);
+	GET_UINT32_BE(title_id_1, header->title_id, 4);
+	if (title_id_0 != 0x00030004) {
+		iprtf("not a DSiWare title(%08lx)\n", title_id_0);
+		free(tmd_buf);
+		return;
+	}
+	if (header->num_content[0] != 0 || header->num_content[1] != 1) {
+		iprtf("num_content should to be 1(%02x%02x)\n",
+			header->num_content[0], header->num_content[1]);
+		free(tmd_buf);
+		return;
+	}
+	// TODO
+	// tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
+	free(tmd_buf);
+}
+
+void menu_action(const char *name) {
+	int len_path = strlen(browse_path);
+	int len_name = strlen(name);
+	if (len_path + len_name > BUF_SIZE - 1) {
+		prt("max path length exceeded\n");
+		return;
+	}
+	char *full_path = alloc_buf();
+	strcpy(full_path, browse_path);
+	strcpy(full_path + len_path, name);
+	if (len_name >= 4 && strcmp(name + len_name - 4, ".nfs") == 0) {
+		menu_action_script(name, full_path);
+	}else if((len_name == 3 && strcmp(name, "tmd") == 0)
+		||(len_name >= 4 && strcmp(name + len_name - 4, ".tmd"))){
+		menu_action_tmd(name, full_path);
+	}else{
+		prt("don't know how to handle this file\n");
+	}
+	free_buf(full_path);
+}
+
 void menu() {
+	file_list = (file_list_item_t*)malloc(sizeof(file_list_item_t) * FILE_LIST_LEN);
+	if (file_list == 0) {
+		prt("failed to alloc memory\n");
+		return;
+	}
 	// init list
+	browse_path = alloc_buf();
 	browse_path[0] = 0;
 	menu_cd(0);
 	// button handling
@@ -361,7 +427,9 @@ void menu() {
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
 			} else if (keys & KEY_R) {
-				iprtf("walk returned %d\n", walk(nand_root, walk_cb_dump, 0));
+				char *name_buf = alloc_buf();
+				iprtf("walk returned %d\n", walk(nand_root, walk_cb_dump, name_buf));
+				free_buf(name_buf);
 			} else {
 				prt("cancelled\n");
 			}
@@ -370,6 +438,8 @@ void menu() {
 			draw_file_list();
 		}
 	}
+	free(file_list);
+	free_buf(browse_path);
 }
 
 void set_scroll_callback(int x, int y, void *param) {
@@ -455,7 +525,7 @@ int main(int argc, const char * const argv[]) {
 	ret = fatInitDefault();
 	u32 td = timerTicks2usec(cpuEndTiming());
 	if (!ret) {
-		prt("\x1b[3D " BlkOnRed "failed!\n" Rst);
+		prt("\x1b[3D " Red "failed!\n" Rst);
 		exit_with_prompt(-1);
 	} else {
 		iprtf("\x1b[3D succeed, %" PRIu32 "\xe6s\n", td);
@@ -482,7 +552,7 @@ int main(int argc, const char * const argv[]) {
 			prt("most likely Console ID is wrong\n");
 			exit_with_prompt(ret);
 		}
-		prt(BlkOnRed "are you SURE to start direct test mode(A)? quit(B)?\n");
+		prt(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
 		if (wait_keys(KEY_A | KEY_B) & KEY_A) {
 			if ((ret = mount(1)) != 0) {
 				exit_with_prompt(ret);
@@ -525,7 +595,7 @@ int main(int argc, const char * const argv[]) {
 			mode = MODE_IMAGE;
 		} else if (keys & KEY_X) {
 			mode = MODE_DIRECT;
-			prt(BlkOnRed "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
+			prt(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
 		}
 		if((ret = mount(mode ==  MODE_DIRECT ? 1 : 0)) != 0) {
 			exit_with_prompt(ret);
@@ -533,6 +603,16 @@ int main(int argc, const char * const argv[]) {
 	}
 
 	df(nand_root, 1);
+
+	if ((ret = setup_cp07_pubkey()) != 0) {
+		fatUnmount(nand_vol_name);
+		exit_with_prompt(ret);
+	}
+
+	if ((ret = setup_ticket_template()) != 0) {
+		prt("failed to find a valid ticket, "
+			"will not be able to forge ticket without template\n");
+	}
 
 	if ((ret = scripting_init()) != 0) {
 		fatUnmount(nand_vol_name);
@@ -544,4 +624,5 @@ int main(int argc, const char * const argv[]) {
 	fatUnmount(nand_vol_name);
 	// TODO: in image mode, update sha1 if writes > 0
 	// TODO: in direct mode, restore NAND image if anything bad happens
+	return 0;
 }

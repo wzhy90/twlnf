@@ -12,6 +12,8 @@ int save_file(const char *filename, const void *buffer, size_t size, int save_sh
 
 int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align);
 
+int load_block_from_file(void *buf, const char *filename, unsigned offset, unsigned size);
+
 int save_sha1_file(const char *filename);
 
 void print_bytes(const void *buf, size_t len);

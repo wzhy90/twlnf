@@ -105,6 +105,23 @@ int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1,
 	}
 }
 
+int load_block_from_file(void *buf, const char *filename, unsigned offset, unsigned size) {
+	FILE *f = fopen(filename, "rb");
+	if (f == 0) {
+		return -1;
+	}
+	if (fseek(f, offset, SEEK_END) != 0) {
+		fclose(f);
+		return -1;
+	}
+	if (fread(buf, 1, size, f) != size) {
+		fclose(f);
+		return -1;
+	}
+	fclose(f);
+	return 0;
+}
+
 int save_sha1_file(const char *filename) {
 	size_t len_fn = strlen(filename);
 	char *sha1_fn = (char *)malloc(len_fn + 6);
