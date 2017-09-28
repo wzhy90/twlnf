@@ -3,7 +3,7 @@
 #include <inttypes.h>
 #include <sys/statvfs.h>
 #include <nds.h>
-#include "term256ext.h"
+#include "../term256/term256ext.h"
 #include "utils.h"
 
 // globals shared by extern

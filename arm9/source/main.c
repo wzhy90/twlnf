@@ -7,7 +7,8 @@
 #include "walk.h"
 #include "nand.h"
 #include "scripting.h"
-#include "term256ext.h"
+#include "../term256/term256.h"
+#include "../term256/term256ext.h"
 
 #define SHA1_LEN 20
 
@@ -297,6 +298,8 @@ void menu_action(const char *name) {
 		++executions;
 		iprtf("execution returned %d\n", ret);
 		// maybe we should prompt to restore a NAND image
+	} else {
+		prt("cancelled\n");
 	}
 }
 

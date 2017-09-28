@@ -5,10 +5,10 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "../term256/term256ext.h"
 #include "common.h"
 #include "utils.h"
 #include "scripting.h"
-#include "term256ext.h"
 
 extern const char nand_root[];
 

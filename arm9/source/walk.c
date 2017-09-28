@@ -9,7 +9,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "term256ext.h"
+#include "../term256/term256ext.h"
 #include "walk.h"
 
 #define NAME_BUF_LEN 0x100

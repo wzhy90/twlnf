@@ -5,14 +5,14 @@
 #include <malloc.h>
 #include <nds.h>
 #include <fat.h>
+#include "../mbedtls/aes.h"
+#include "../term256/term256ext.h"
 #include "common.h"
 #include "utils.h"
-#include "aes.h"
 #include "crypto.h"
 #include "sector0.h"
 #include "nandio.h"
 #include "imgio.h"
-#include "term256ext.h"
 
 extern const char nand_vol_name[];
 extern swiSHA1context_t sha1ctx;

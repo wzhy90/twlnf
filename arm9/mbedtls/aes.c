@@ -11,25 +11,6 @@
  * C++ style comments are mine
  */
 
-// modified to work on reversed byte order input/output
-// just my OCD to eliminate some copy
-// original mbed TLS AES GET/PUT_UINT32 macros works on little endian I/O
-// but works on both big/little endian CPUs
-// seems like Nintendo used big endian hardware AES with little endian CPU
-// by byte reversing on I/O, this mimics Nintendo behavior on little endian CPU
-// calling it BE is not very accurate, it becomes little endian on big endian CPU
-
-#define GET_UINT32_BE(n, b, i) \
-	((uint8_t*)&(n))[0] = (b)[i + 3]; \
-	((uint8_t*)&(n))[1] = (b)[i + 2]; \
-	((uint8_t*)&(n))[2] = (b)[i + 1]; \
-	((uint8_t*)&(n))[3] = (b)[i + 0]
-#define PUT_UINT32_BE(n, b, i) \
-	(b)[i + 0] = ((uint8_t*)&(n))[3]; \
-	(b)[i + 1] = ((uint8_t*)&(n))[2]; \
-	(b)[i + 2] = ((uint8_t*)&(n))[1]; \
-	(b)[i + 3] = ((uint8_t*)&(n))[0]
-
 // make VC happy
 #ifdef _MSC_VER
 #define DTCM_BSS
@@ -43,6 +24,7 @@ DTCM_BSS static uint32_t FT1[256];
 DTCM_BSS static uint32_t FT2[256];
 DTCM_BSS static uint32_t FT3[256];
 
+// AES-CTR/CCM only uses encrypt, so R tables are not used
 #define NO_R_TABLES
 #ifndef NO_R_TABLES
 static unsigned char RSb[256];
@@ -152,7 +134,7 @@ void aes_gen_tables(void)
 #endif
 }
 
-// did a little counting to understand why buf is [68]
+// did a little counting to understand why original mbedTLS buf is [68]
 // in set key, they generated:
 //     128 bits key: 10 rounds of += 4, plus 4 after, 44
 //     192 bits key: 8 rounds of += 6, plus 6 after, 56

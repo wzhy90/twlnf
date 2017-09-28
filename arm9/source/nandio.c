@@ -2,9 +2,8 @@
 #include <nds.h>
 #include <nds/disc_io.h>
 #include <malloc.h>
-#include "aes.h"
+#include "../term256/term256ext.h"
 #include "crypto.h"
-#include "term256ext.h"
 
 #define SECTOR_SIZE 512
 #define CRYPT_BUF_LEN 64

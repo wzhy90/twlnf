@@ -4,7 +4,7 @@
 #include <inttypes.h>
 #include "utils.h"
 #include "sector0.h"
-#include "term256ext.h"
+#include "../term256/term256ext.h"
 
 // return 0 for valid NCSD header
 int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
