@@ -121,12 +121,12 @@ int load_block_from_file(void *buf, const char *filename, unsigned offset, unsig
 	}
 	unsigned read;
 	int ret;
-	if (fseek(f, offset, SEEK_SET) != 0) {
+	if (offset != 0 && fseek(f, offset, SEEK_SET) != 0) {
 		prt("seek error\n");
 		ret = -1;
 	} else if ((read = fread(buf, 1, size, f)) != size) {
 		iprtf("read error, expecting %u, got %u\n", size, read);
-		return -1;
+		ret = -1;
 	} else {
 		ret = 0;
 	}

@@ -118,6 +118,14 @@ static void dsi_aes_set_key(u32 *rk, const u32 *console_id, key_mode_t mode) {
 #define DTCM_BSS
 #endif
 
+void dsi_sha1(void *digest, const void *data, unsigned len) {
+	swiSHA1context_t ctx;
+	ctx.sha_block = 0;
+	swiSHA1Init(&ctx);
+	swiSHA1Update(&ctx, data, len);
+	swiSHA1Final(digest, &ctx);
+}
+
 static u32 nand_ctr_rk[RK_LEN];
 static u32 es_rk[RK_LEN];
 static u32 nand_ctr_iv[4];
@@ -138,11 +146,7 @@ void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
 	dsi_aes_set_key(es_rk, console_id, ES);
 
 	u32 digest[5];
-	swiSHA1context_t ctx;
-	ctx.sha_block = 0;
-	swiSHA1Init(&ctx);
-	swiSHA1Update(&ctx, emmc_cid, 16);
-	swiSHA1Final(digest, &ctx);
+	dsi_sha1(digest, emmc_cid, 16);
 	nand_ctr_iv[0] = digest[0];
 	nand_ctr_iv[1] = digest[1];
 	nand_ctr_iv[2] = digest[2];

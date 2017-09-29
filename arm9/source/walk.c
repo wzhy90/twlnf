@@ -154,11 +154,11 @@ void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t
 	if (d == 0) {
 		return;
 	}
-	char *name_buf = alloc_buf();
+	char *fullname = alloc_buf();
 	int len_path = strlen(dir);
-	strcpy(name_buf, dir);
-	if (name_buf[len_path - 1] != '/') {
-		name_buf[len_path] = '/';
+	strcpy(fullname, dir);
+	if (fullname[len_path - 1] != '/') {
+		fullname[len_path] = '/';
 		len_path += 1;
 		// beware the string might not be zero terminated now
 	}
@@ -169,27 +169,27 @@ void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t
 		}
 		int len_name = strlen(de->d_name);
 		if (len_path + len_name + 1 > BUF_SIZE) {
-			// consider current usage case, missing a file for long path is no big deal
+			// consider current usage cases, missing a file for long path is no big deal
 			iprtf("name too long: %s\n", de->d_name);
 			continue;
 		}
-		strcpy(name_buf + len_path, de->d_name);
+		strcpy(fullname + len_path, de->d_name);
 		struct stat s;
-		if (stat(name_buf, &s) != 0) {
+		if (stat(fullname, &s) != 0) {
 			iprtf("weird stat failure, errno: %d\n", errno);
 			continue;
 		}
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
-			if (callback(want_full ? name_buf : de->d_name, s.st_size, p_cb_param) != 0) {
+			if (callback(want_full ? fullname : de->d_name, s.st_size, p_cb_param) != 0) {
 				break;
 			}
 		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
 			// use INVALID_SIZE as is_dir
-			if (callback(want_full ? name_buf : de->d_name, INVALID_SIZE, p_cb_param) != 0) {
+			if (callback(want_full ? fullname : de->d_name, INVALID_SIZE, p_cb_param) != 0) {
 				break;
 			}
 		}
 	}
 	closedir(d);
-	free_buf(name_buf);
+	free_buf(fullname);
 }

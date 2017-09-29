@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h>
 #include <malloc.h>
 #include <sys/stat.h>
 #include <nds.h>
@@ -14,6 +13,7 @@
 #include "nand.h"
 #include "scripting.h"
 #include "ticket0.h"
+#include "crypto.h"
 #include "tmd.h"
 
 #define SHA1_LEN 20
@@ -24,6 +24,7 @@ term_t t0;
 term_t t1;
 
 extern const char nand_img_name[];
+extern const u32 dsiware_title_id_h;
 
 unsigned executions = 0;
 
@@ -31,6 +32,9 @@ const char nand_vol_name[] = "NAND";
 const char nand_root[] = "NAND:/";
 
 const char dump_dir[] = "dump";
+
+int cert_ready;
+int ticket_ready;
 
 #define Cls "\x1b[2J"
 #define Rst "\x1b[0m"
@@ -80,11 +84,18 @@ void draw_file_list() {
 	select_term(&t1);
 	int len_size = sniprintf(size_buf, TERM_COLS, "%u/%u", view_pos + cur_pos + 1, file_list_len);
 	prt(Rst Cls BlkOnWht);
-	// iprtf("%s%s%s" seems dumb
-	// TODO: handle if browse_path too long
-	prt(browse_path);
-	prt(whitespace + strlen(browse_path) + len_size);
-	prt(size_buf);
+	int len_path = strlen(browse_path);
+	if (len_path + len_size < TERM_COLS) {
+		// iprtf("%s%s%s" seems dumb
+		prt(browse_path);
+		prt(whitespace + len_path + len_size);
+		prt(size_buf);
+	} else {
+		prt("...");
+		prt(browse_path + len_path - (TERM_COLS - 3 - 1 - len_size)); // cut head instead of tail
+		prt(whitespace + TERM_COLS - 1);
+		prt(size_buf);
+	}
 	for (unsigned i = 0; i < VIEW_ROWS; ++i) {
 		if (view_pos + i < file_list_len) {
 			prt(i == cur_pos ? CyanOnBlk : Rst);
@@ -101,7 +112,7 @@ void draw_file_list() {
 				strncpy(line_buf, item->name, TERM_COLS - len_size - 5);
 				strcpy(line_buf + TERM_COLS - len_size - 5, " ...");
 				prt(line_buf);
-				prt(" ");
+				prt(whitespace + TERM_COLS - 1);
 				prt(size_buf);
 			} else {
 				prt(item->name);
@@ -321,23 +332,47 @@ void menu_action_tmd(const char *name, const char *full_path) {
 		return;
 	}
 	tmd_header_v0_t *header = (tmd_header_v0_t*)tmd_buf;
-	u32 title_id_0, title_id_1;
-	GET_UINT32_BE(title_id_0, header->title_id, 0);
-	GET_UINT32_BE(title_id_1, header->title_id, 4);
-	if (title_id_0 != 0x00030004) {
-		iprtf("not a DSiWare title(%08lx)\n", title_id_0);
+	u32 title_id[2];
+	GET_UINT32_BE(title_id[0], header->title_id, 4);
+	GET_UINT32_BE(title_id[1], header->title_id, 0);
+	if (title_id[1] != dsiware_title_id_h) {
+		iprtf("not a DSiWare title(%08lx)\n", title_id[1]);
 		free(tmd_buf);
 		return;
 	}
+	iprtf("Title ID: %08lx%08lx\n", title_id[1], title_id[0]);
 	if (header->num_content[0] != 0 || header->num_content[1] != 1) {
 		iprtf("num_content should to be 1(%02x%02x)\n",
 			header->num_content[0], header->num_content[1]);
 		free(tmd_buf);
 		return;
 	}
-	// TODO
+	unsigned char sig_sha1[SHA1_LEN];
+	if (decrypt_cp07_signature(sig_sha1, header->sig) != 0) {
+		free(tmd_buf);
+		return;
+	}
+	unsigned char sha1[SHA1_LEN];
+#define SIG_OFFSET (sizeof(header->sig_type) + sizeof(header->sig) + sizeof(header->padding0))
+#define SIG_LEN (sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t) - SIG_OFFSET)
+	dsi_sha1(sha1, tmd_buf + SIG_OFFSET, SIG_LEN);
+	if (memcmp(sha1, sig_sha1, SHA1_LEN) != 0) {
+		prt("signature verification failed\n");
+		free(tmd_buf);
+		return;
+	} else {
+		prt("signature verified\n");
+	}
+#undef SIG_OFFSET
+#undef SIG_LEN
 	// tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
+	// TODO
 	free(tmd_buf);
+}
+
+static inline int name_is_tmd(const char *name, int len_name) {
+	return (len_name == 3 && strcmp(name, "tmd") == 0)
+		|| (len_name >= 4 && strcmp(name + len_name - 4, ".tmd") == 0);
 }
 
 void menu_action(const char *name) {
@@ -352,8 +387,7 @@ void menu_action(const char *name) {
 	strcpy(full_path + len_path, name);
 	if (len_name >= 4 && strcmp(name + len_name - 4, ".nfs") == 0) {
 		menu_action_script(name, full_path);
-	}else if((len_name == 3 && strcmp(name, "tmd") == 0)
-		||(len_name >= 4 && strcmp(name + len_name - 4, ".tmd"))){
+	}else if(cert_ready && ticket_ready && name_is_tmd(name, len_name)){
 		menu_action_tmd(name, full_path);
 	}else{
 		prt("don't know how to handle this file\n");
@@ -496,7 +530,7 @@ int main(int argc, const char * const argv[]) {
 
 	u32 bat_reg = getBatteryLevel();
 	if (!(bat_reg & 1)) {
-		iprtf("battery level too low: %08" PRIx32 "\n", bat_reg);
+		iprtf("battery level too low: %08lx\n", bat_reg);
 		exit_with_prompt(0);
 	}
 
@@ -532,7 +566,7 @@ int main(int argc, const char * const argv[]) {
 		prt("\x1b[3D " Red "failed!\n" Rst);
 		exit_with_prompt(-1);
 	} else {
-		iprtf("\x1b[3D succeed, %" PRIu32 "\xe6s\n", td);
+		iprtf("\x1b[3D succeed, %lu\xe6s\n", td);
 	}
 
 	if (mode == MODE_IMAGE_TEST) {
@@ -608,14 +642,24 @@ int main(int argc, const char * const argv[]) {
 
 	df(nand_root, 1);
 
-	if ((ret = setup_cp07_pubkey()) != 0) {
-		fatUnmount(nand_vol_name);
-		exit_with_prompt(ret);
+	cert_ready = setup_cp07_pubkey() == 0;
+	if (cert_ready) {
+		prt("certificate loaded\n");
+	}else{
+		prt("failed to load certificate, "
+			"will not be able to validate TMD.\n");
 	}
 
-	if ((ret = setup_ticket_template()) != 0) {
+	ticket_ready = setup_ticket_template() == 0;
+	if (ticket_ready) {
+		prt("ticket template loaded\n");
+	}else{
 		prt("failed to find a valid ticket, "
-			"will not be able to forge ticket without template\n");
+			"no template to forge fake ticket.\n");
+	}
+
+	if (!(cert_ready && ticket_ready)) {
+		prt("TMD operations will be disabled.\n");
 	}
 
 	menu();
