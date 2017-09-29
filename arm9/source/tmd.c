@@ -67,9 +67,15 @@ int decrypt_cp07_signature(unsigned char *out, const unsigned char *in) {
 	} else if (rsa_public(&rsa_cp07, in, sig) != 0){
 		prt("failed to decrypt signature\n");
 		ret = -2;
-	} else if (sig[0] != 0 || out[1] != 1 || out[2] != 0xff
+	} else if (sig[0] != 0 || sig[1] != 1 || sig[2] != 0xff
 		|| sig[RSA_2048_LEN - 0x14 - 1] != 0x14) {
-		prt("invalid signature\n");
+		prt("invalid signature, first 16 bytes:\n\t");
+		print_bytes(sig, 16);
+		prt("\nlast 32 bytes:\n\t");
+		print_bytes(sig + RSA_2048_LEN - 32, 16);
+		prt("\n\t");
+		print_bytes(sig + RSA_2048_LEN - 16, 16);
+		prt("\n");
 		ret = -3;
 	} else {
 		memcpy(out, sig + RSA_2048_LEN - 0x14, 0x14);

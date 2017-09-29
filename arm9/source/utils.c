@@ -1,6 +1,5 @@
 
 #include <stdio.h>
-#include <inttypes.h>
 #include <sys/statvfs.h>
 #include <nds.h>
 #include "../term256/term256ext.h"
@@ -158,7 +157,7 @@ int save_sha1_file(const char *filename) {
 void print_bytes(const void *buf, size_t len) {
 	const unsigned char *p = (const unsigned char *)buf;
 	for(size_t i = 0; i < len; ++i) {
-		iprtf("%02" PRIx8, *p++);
+		iprtf("%02x", *p++);
 	}
 }
 
