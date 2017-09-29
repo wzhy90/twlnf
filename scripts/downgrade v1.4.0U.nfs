@@ -2,15 +2,13 @@
 # check for these directories so region match
 dir_exist title/00030017/484e4145/
 dir_exist title/00030015/484e4245/
-# rm only acts on regular file, there is no rm -r
-# the wild card * only works at end of the string, and it won't descend into sub directories
 # BEWARE it does NOT have any sanity check, if you write `rm sys/*`, it will do so
-rm title/0003000f/484e4841/*
-5b0a9602d12000c9a1fac5e8a3c75c172a62f793 *title/0003000f/484e4841/title.tmd
-da5123e336d2ca147f03ffc2d1b10e27b7bf822e *title/0003000f/484e4841/00000001.app
-rm title/00030017/484e4145/*
-6c52561a047c8036f31f9d468570d50d36f7d988 *title/00030017/484e4145/title.tmd
-1339bd7457484839f1d71f27de2f8da8098834b4 *title/00030017/484e4145/00000002.app
-rm title/00030015/484e4245/*
-759ab482b244d2abae4869a0263c005223bad3a0 *title/00030015/484e4245/title.tmd
-431925e39e635df3d38e2c34152cb391ad8e4705 *title/00030015/484e4245/00000002.app
+rm title/0003000f/484e4841/content/*
+5b0a9602d12000c9a1fac5e8a3c75c172a62f793 *title/0003000f/484e4841/content/title.tmd
+da5123e336d2ca147f03ffc2d1b10e27b7bf822e *title/0003000f/484e4841/content/00000001.app
+rm title/00030017/484e4145/content/*
+6c52561a047c8036f31f9d468570d50d36f7d988 *title/00030017/484e4145/content/title.tmd
+1339bd7457484839f1d71f27de2f8da8098834b4 *title/00030017/484e4145/content/00000002.app
+rm title/00030015/484e4245/content/*
+759ab482b244d2abae4869a0263c005223bad3a0 *title/00030015/484e4245/content/title.tmd
+431925e39e635df3d38e2c34152cb391ad8e4705 *title/00030015/484e4245/content/00000002.app
