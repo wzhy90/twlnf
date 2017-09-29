@@ -110,9 +110,7 @@ void draw_file_list() {
 			}
 		}
 	}
-#define TO_STRING_LITERAL(r) #r
-	prt("\x1b[" TO_STRING_LITERAL(TERM_ROWS) ";1H" BlkOnWht);
-#undef TO_STRING_LITERAL
+	prt("\x1b[%d;1H" BlkOnWht, TERM_ROWS);
 	prt(footer);
 	prt(whitespace + strlen(footer));
 	select_term(&t0);
@@ -386,7 +384,7 @@ void menu() {
 			} else {
 				prt("cancelled\n");
 			}
-		}else if(keys & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT)){
+		} else if (keys & (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT)) {
 			if (keys & KEY_UP) {
 				menu_move(-1);
 			} else if (keys & KEY_DOWN) {
@@ -397,14 +395,14 @@ void menu() {
 				menu_move(2);
 			}
 			needs_redraw = 1;
-		}else if(keys & KEY_B){
+		} else if (keys & KEY_B) {
 			menu_cd(0);
 		} else if (keys & KEY_A) {
 			file_list_item_t *fli = file_list + view_pos + cur_pos;
 			if (fli->size == INVALID_SIZE) {
 				// change directory
 				menu_cd(fli->name);
-			} else {
+			} else if(fli->size > 0){
 				menu_action(fli->name);
 			}
 		} else if ((keys & KEY_START)) {
@@ -489,6 +487,11 @@ int main(int argc, const char * const argv[]) {
 	term_init(&t1, bg1, set_scroll_callback, &bg1id);
 
 	select_term(&t0);
+
+	if(heap_init() != 0){
+		prt("failed to alloc memory\n");
+		return -1;
+	}
 
 	u32 bat_reg = getBatteryLevel();
 	if (!(bat_reg & 1)) {

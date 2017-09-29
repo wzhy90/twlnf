@@ -72,54 +72,67 @@ int save_file(const char *filename, const void *buffer, size_t size, int save_sh
 
 int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align) {
 	FILE *f = fopen(filename, "rb");
-	if (NULL == f)return -1;
+	if (f == 0) {
+		iprtf("failed to open %s\n", filename);
+		return -1;
+	}
+	int ret;
+	unsigned read;
 	fseek(f, 0, SEEK_END);
 	*psize = ftell(f);
-	if (!*psize) {
+	if (*psize == 0) {
 		*pbuf = 0;
-		fclose(f);
-		return 1;
-	}else{
+		ret = 1;
+	} else {
 		if (align) {
 			*pbuf = memalign(align, *psize);
 		} else {
 			*pbuf = malloc(*psize);
 		}
-		fseek(f, 0, SEEK_SET);
-		size_t read = fread(*pbuf, 1, *psize, f);
-		if (read != *psize) {
-			iprtf("Error loading %s\n", filename);
-			free(*pbuf);
-			*pbuf = 0;
-			fclose(f);
-			return -2;
+		if (*pbuf == 0) {
+			prt("failed to alloc memory\n");
+			ret = -1;
 		} else {
-			iprtf("loaded %s(%u)\n", filename, read);
+			fseek(f, 0, SEEK_SET);
+			size_t read = fread(*pbuf, 1, *psize, f);
+			if (read != *psize) {
+				iprtf("error reading %s\n", filename);
+				free(*pbuf);
+				*pbuf = 0;
+				ret = -2;
+			} else {
+				iprtf("loaded %s(%u)\n", filename, read);
+				if (verify_sha1) {
+					//TODO:
+					iprtf("%s: not implemented\n", __FUNCTION__);
+				}
+				ret = 0;
+			}
 		}
-		if (verify_sha1) {
-			//TODO:
-			iprtf("%s: not implemented\n", __FUNCTION__);
-		}
-		fclose(f);
-		return 0;
 	}
+	fclose(f);
+	return ret;
 }
 
 int load_block_from_file(void *buf, const char *filename, unsigned offset, unsigned size) {
 	FILE *f = fopen(filename, "rb");
 	if (f == 0) {
+		iprtf("failed to open %s\n", filename);
 		return -1;
 	}
-	if (fseek(f, offset, SEEK_END) != 0) {
-		fclose(f);
+	unsigned read;
+	int ret;
+	if (fseek(f, offset, SEEK_SET) != 0) {
+		prt("seek error\n");
+		ret = -1;
+	} else if ((read = fread(buf, 1, size, f)) != size) {
+		iprtf("read error, expecting %u, got %u\n", size, read);
 		return -1;
-	}
-	if (fread(buf, 1, size, f) != size) {
-		fclose(f);
-		return -1;
+	} else {
+		ret = 0;
 	}
 	fclose(f);
-	return 0;
+	return ret;
 }
 
 int save_sha1_file(const char *filename) {

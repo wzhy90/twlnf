@@ -1,6 +1,6 @@
 
 // a POSIX directory tree walk
-// walk down subdirectories and calls callback on regular files, skip all others
+// walk down subdirectories and calls callback on regular files/directories, skip all others
 
 #include <stdio.h>
 #include <errno.h>
@@ -66,7 +66,7 @@ static void s_deep_free() {
 }
 
 // walk doesn't use heap.c, since the stack could be dramatically deeper
-// and it doesn't do critical jobs so malloc failure is fine
+// and it doesn't do critical jobs so failure(induced by malloc failure) is fine
 int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_cb_param) {
 	// init the stack
 	stack_max_depth = 0;
@@ -100,6 +100,7 @@ int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_
 			}
 			char *fullname = (char*)malloc(full_len + 1);
 			if (fullname == 0) {
+				prt("failed to alloc memory\n");
 				closedir(d);
 				free(p);
 				s_deep_free();
@@ -127,7 +128,7 @@ int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_
 				if (callback != 0) {
 					callback(fullname, INVALID_SIZE, p_cb_param);
 				}
-				if (s_push(fullname) == 0) {
+				if (s_push(fullname) != 0) {
 					free(fullname);
 					closedir(d);
 					free(p);
@@ -147,18 +148,32 @@ int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_
 	return 0;
 }
 
+// this is much simpler, the callback can break the loop by returning non-zero values
 void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t, void*), void *p_cb_param) {
 	DIR * d = opendir(dir);
 	if (d == 0) {
 		return;
 	}
 	char *name_buf = alloc_buf();
+	int len_path = strlen(dir);
+	strcpy(name_buf, dir);
+	if (name_buf[len_path - 1] != '/') {
+		name_buf[len_path] = '/';
+		len_path += 1;
+		// beware the string might not be zero terminated now
+	}
 	struct dirent * de;
 	while ((de = readdir(d)) != 0) {
 		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) {
 			continue;
 		}
-		sniprintf(name_buf, BUF_SIZE, dir[strlen(dir) - 1] == '/' ? "%s%s" : "%s/%s", dir, de->d_name);
+		int len_name = strlen(de->d_name);
+		if (len_path + len_name + 1 > BUF_SIZE) {
+			// consider current usage case, missing a file for long path is no big deal
+			iprtf("name too long: %s\n", de->d_name);
+			continue;
+		}
+		strcpy(name_buf + len_path, de->d_name);
 		struct stat s;
 		if (stat(name_buf, &s) != 0) {
 			iprtf("weird stat failure, errno: %d\n", errno);
