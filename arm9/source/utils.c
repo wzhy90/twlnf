@@ -77,7 +77,6 @@ int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1,
 		return -1;
 	}
 	int ret;
-	unsigned read;
 	fseek(f, 0, SEEK_END);
 	*psize = ftell(f);
 	if (*psize == 0) {
@@ -94,7 +93,7 @@ int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1,
 			ret = -1;
 		} else {
 			fseek(f, 0, SEEK_SET);
-			size_t read = fread(*pbuf, 1, *psize, f);
+			unsigned read = fread(*pbuf, 1, *psize, f);
 			if (read != *psize) {
 				iprtf("error reading %s\n", filename);
 				free(*pbuf);

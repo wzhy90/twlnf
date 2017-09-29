@@ -4,8 +4,6 @@
 
 int sha1_file(void *digest, const char *name);
 
-void mkdir_parent(const char *root, const char *name);
-
 int cp(const char *from, const char *to);
 
 int scripting_init();

@@ -110,7 +110,7 @@ void draw_file_list() {
 			}
 		}
 	}
-	prt("\x1b[%d;1H" BlkOnWht, TERM_ROWS);
+	iprtf("\x1b[%d;1H" BlkOnWht, TERM_ROWS);
 	prt(footer);
 	prt(whitespace + strlen(footer));
 	select_term(&t0);
@@ -425,6 +425,7 @@ void menu() {
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
 				fclose(f);
 			} else if (keys & KEY_R) {
+				mkdir(dump_dir, S_IRWXU | S_IRWXG | S_IRWXO);
 				char *name_buf = alloc_buf();
 				iprtf("walk returned %d\n", walk(nand_root, walk_cb_dump, name_buf));
 				free_buf(name_buf);
@@ -488,7 +489,7 @@ int main(int argc, const char * const argv[]) {
 
 	select_term(&t0);
 
-	if(heap_init() != 0){
+	if(heap_init() != 0 || scripting_init() != 0){
 		prt("failed to alloc memory\n");
 		return -1;
 	}
@@ -615,11 +616,6 @@ int main(int argc, const char * const argv[]) {
 	if ((ret = setup_ticket_template()) != 0) {
 		prt("failed to find a valid ticket, "
 			"will not be able to forge ticket without template\n");
-	}
-
-	if ((ret = scripting_init()) != 0) {
-		fatUnmount(nand_vol_name);
-		exit_with_prompt(ret);
 	}
 
 	menu();
