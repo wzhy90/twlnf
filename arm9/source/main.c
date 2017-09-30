@@ -58,7 +58,7 @@ int cur_pos;
 
 #define VIEW_ROWS (TERM_ROWS - 2)
 
-int file_list_add(const char *name, size_t size, void *_) {
+int file_list_add(const char *full_path, const char *name, size_t size, void *_) {
 	if (file_list_len >= FILE_LIST_LEN) {
 		return -1;
 	}
@@ -297,7 +297,7 @@ void menu_cd(const char *name) {
 	}
 	// we are now at the new path
 	file_list_len = 0;
-	list_dir(browse_path, 0, file_list_add, 0);
+	list_dir(browse_path, file_list_add, 0);
 	view_pos = 0;
 	cur_pos = 0;
 	draw_file_list();

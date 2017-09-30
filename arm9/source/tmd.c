@@ -27,12 +27,14 @@ const char hwinfo_s_path[] = "sys/HWINFO_S.dat";
 const char ticket_dir_fmt[] = "%sticket/%08lx/";
 // used while reading app aside tmd on SD
 const char app_src_fmt[] = "%s%08lx.app";
-// dst full name generation
+// dst full path generation
 const char ticket_dst_fmt[] = "%sticket/%08lx/%08lx.tik";
-const char tmd_dst_fmt[] = "%stitle/%08lx/%08lx/content/tmd";
+const char tmd_dst_fmt[] = "%stitle/%08lx/%08lx/content/title.tmd";
 const char app_dst_fmt[] = "%stitle/%08lx/%08lx/content/%08lx.app";
+// need to create these directories
 const char dir0_fmt[] = "%stitle/%08lx/%08lx";
 const char dir1_fmt[] = "%stitle/%08lx/%08lx/content";
+const char dir2_fmt[] = "%stitle/%08lx/%08lx/data";
 
 rsa_context_t rsa_cp07;
 
@@ -109,26 +111,26 @@ static_assert(TICKET_SIZE % TICKET_ALIGN == 0, "invalid TICKET_ALIGN");
 
 unsigned wait_keys(unsigned);
 
-static int find_ticket_cb(const char* filename, size_t size, void *cb_param) {
+static int find_ticket_cb(const char* full_path, const char* name, size_t size, void *cb_param) {
 	if (size == INVALID_SIZE || size < TICKET_SIZE) {
 		return 0;
 	}
-	if (load_block_from_file(ticket_template, filename, 0, TICKET_SIZE) != 0) {
-		iprtf("failed to load ticket: %s\n", filename);
+	if (load_block_from_file(ticket_template, full_path, 0, TICKET_SIZE) != 0) {
+		iprtf("failed to load ticket: %s\n", name);
 		// return 0 to let list_dir continue
 		return 0;
 	}
-#define ES_ENCRYPT_TEST 1
-#if ES_ENCRYPT_TEST
+// #define ES_ENCRYPT_TEST
+#ifdef ES_ENCRYPT_TEST
 	uint8_t *ticket_original = memalign(TICKET_ALIGN, TICKET_SIZE);
 	assert(ticket_original != 0);
 	memcpy(ticket_original, ticket_template, TICKET_SIZE);
 #endif
 	if (dsi_es_block_crypt(ticket_template, TICKET_SIZE, DECRYPT) != 0) {
-		iprtf("failed to decrypt ticket: %s\n", filename);
+		iprtf("failed to decrypt ticket: %s\n", name);
 		return 0;
 	}
-#if ES_ENCRYPT_TEST
+#ifdef ES_ENCRYPT_TEST
 	uint8_t *ticket_enc = memalign(TICKET_ALIGN, TICKET_SIZE);
 	assert(ticket_enc != 0);
 	memcpy(ticket_enc, ticket_template, TICKET_SIZE);
@@ -167,7 +169,7 @@ int setup_ticket_template() {
 	char * ticket_dir = alloc_buf();
 	sprintf(ticket_dir, ticket_dir_fmt, nand_root, dsiware_title_id_h);
 	int found = 0;
-	list_dir(ticket_dir, 1, find_ticket_cb, &found);
+	list_dir(ticket_dir, find_ticket_cb, &found);
 	free_buf(ticket_dir);
 	if (found) {
 		return 0;
@@ -243,12 +245,11 @@ int get_app_region(const char* name, uint32_t *p_region) {
 
 #define TMD_SIZE (sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t))
 
-int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
-	char *app_src, uint8_t *app_sha1, int *psize, char *app_dst,
-	uint8_t *ticket_buf, char *ticket_dst, char *dir0, char *dir1)
+int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir,
+	uint32_t *title_id, uint32_t *content_id,
+	char *app_src, uint8_t *app_sha1, int *psize, uint8_t *ticket_buf)
 {
 	tmd_header_v0_t *header = (tmd_header_v0_t*)tmd_buf;
-	uint32_t title_id[2];
 	GET_UINT32_BE(title_id[0], header->title_id, 4);
 	GET_UINT32_BE(title_id[1], header->title_id, 0);
 	if (title_id[1] != dsiware_title_id_h) {
@@ -278,9 +279,8 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
 	}
 	// verify app region
 	tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
-	uint32_t content_id;
-	GET_UINT32_BE(content_id, content->content_id, 0);
-	sprintf(app_src, app_src_fmt, tmd_dir, content_id);
+	GET_UINT32_BE(*content_id, content->content_id, 0);
+	sprintf(app_src, app_src_fmt, tmd_dir, *content_id);
 	uint32_t region_flags;
 	if (get_app_region(app_src, &region_flags) != 0) {
 		prt("failed to get region\n");
@@ -292,6 +292,7 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
 		return -1;
 	}
 	// verify app sha1
+	// TODO: verify app signature and title id, allow TMD<->app sha1 mismatch
 	prt(app_src);
 	if ((*psize = sha1_file(app_sha1, app_src)) == -1) {
 		prt(" <- couldn't open\n");
@@ -303,6 +304,7 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
 	} else {
 		prt(" SHA1 verified\n");
 	}
+	// TODO: verify data/*.sav size, I suppose this is not critical
 	// forge ticket
 	memcpy(ticket_buf, ticket_template, TICKET_SIZE);
 	PUT_UINT32_BE(title_id[0], ((ticket_v0_t*)ticket_buf)->title_id, 4);
@@ -310,12 +312,6 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
 		prt("weird, failed to forge ticket\n");
 		return -1;
 	}
-	// generate paths
-	sprintf(ticket_dst, ticket_dst_fmt, nand_root, title_id[1], title_id[0]);
-	sprintf(tmd_dst, tmd_dst_fmt, nand_root, title_id[1], title_id[0]);
-	sprintf(app_dst, app_dst_fmt, nand_root, title_id[1], title_id[0], content_id);
-	sprintf(dir0, dir0_fmt, nand_root, title_id[1], title_id[0]);
-	sprintf(dir1, dir1_fmt, nand_root, title_id[1], title_id[0]);
 	return 0;
 }
 
@@ -342,6 +338,22 @@ void save_and_verify(const char *name, uint8_t *buf, size_t len) {
 	}
 }
 
+int data_cp(const char *full_path, const char *name, size_t size, void *cb_param) {
+	char *dst = alloc_buf();
+	sprintf(dst, "%s/%s", (char*)cb_param, name);
+	prt(dst);
+	if (cp(full_path, dst) != 0) {
+		prt(" failed to copy\n");
+	} else {
+		prt(" copied to NAND");
+		uint8_t digest[SHA1_LEN];
+		sha1_file(digest, full_path);
+		verify(dst, digest);
+	}
+	free_buf(dst);
+	return 0;
+}
+
 void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 	// TMD file
 	uint8_t *tmd_buf = malloc(TMD_SIZE);
@@ -362,20 +374,25 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 		free(ticket_buf);
 		return;
 	}
+	uint32_t title_id[2];
+	uint32_t content_id;
 	char *tmd_dst = alloc_buf();
 	char *app_src = alloc_buf();
 	uint8_t app_sha1[SHA1_LEN];
 	int size;
 	char *app_dst = alloc_buf();
 	char *ticket_dst = alloc_buf();
-	char * dir0 = alloc_buf();
-	char * dir1 = alloc_buf();
-	if (tmd_verify(tmd_buf, tmd_dir, tmd_dst,
-		app_src, app_sha1, &size, app_dst,
-		ticket_buf, ticket_dst, dir0, dir1) == 0) {
+	char * dir = alloc_buf();
+	char * dir_data = alloc_buf();
+	if (tmd_verify(tmd_buf, tmd_dir, title_id, &content_id,
+		app_src, app_sha1, &size, ticket_buf) == 0) {
 		if (size > max_size) {
 			prt("insufficient NAND space\n");
 		} else if(wait_yes_no("install to NAND?")){
+			// generate paths
+			sprintf(ticket_dst, ticket_dst_fmt, nand_root, title_id[1], title_id[0]);
+			sprintf(tmd_dst, tmd_dst_fmt, nand_root, title_id[1], title_id[0]);
+			sprintf(app_dst, app_dst_fmt, nand_root, title_id[1], title_id[0], content_id);
 			// write ticket
 			FILE *f = fopen(ticket_dst, "r");
 			if (f != 0) {
@@ -384,13 +401,16 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 			} else {
 				save_and_verify(ticket_dst, ticket_buf, TICKET_SIZE);
 			}
-			// iprtf("mkdir %s\n", dir0);
-			mkdir(dir0, S_IRWXU | S_IRWXG | S_IRWXO);
-			// iprtf("mkdir %s\n", dir1);
-			mkdir(dir1, S_IRWXU | S_IRWXG | S_IRWXO);
+			// create directories
+			sprintf(dir, dir0_fmt, nand_root, title_id[1], title_id[0]);
+			mkdir(dir, S_IRWXU | S_IRWXG | S_IRWXO);
+			sprintf(dir, dir1_fmt, nand_root, title_id[1], title_id[0]);
+			mkdir(dir, S_IRWXU | S_IRWXG | S_IRWXO);
+			sprintf(dir, dir2_fmt, nand_root, title_id[1], title_id[0]);
+			mkdir(dir, S_IRWXU | S_IRWXG | S_IRWXO);
 			// write TMD
 			save_and_verify(tmd_dst, tmd_buf, TMD_SIZE);
-			// write app
+			// copy app
 			prt(app_dst);
 			if (cp(app_src, app_dst) != 0) {
 				prt(" failed to copy\n");
@@ -398,6 +418,11 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 				prt(" copied to NAND");
 				verify(app_dst, app_sha1);
 			}
+			// copy data
+			// TODO: only copy .sav files indicated by tmd/app header
+			sprintf(dir_data, "%s../data", tmd_dir);
+			list_dir(dir_data, data_cp, dir);
+			prt("all done\n");
 		}
 	}
 	free(tmd_buf);
@@ -406,6 +431,6 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 	free_buf(app_src);
 	free_buf(app_dst);
 	free_buf(ticket_dst);
-	free_buf(dir0);
-	free_buf(dir1);
+	free_buf(dir);
+	free_buf(dir_data);
 }

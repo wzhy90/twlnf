@@ -149,16 +149,16 @@ int walk(const char *dir, void (*callback)(const char*, size_t, void*), void *p_
 }
 
 // this is much simpler, the callback can break the loop by returning non-zero values
-void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t, void*), void *p_cb_param) {
+void list_dir(const char *dir, int(*callback)(const char*, const char*, size_t, void*), void *p_cb_param) {
 	DIR * d = opendir(dir);
 	if (d == 0) {
 		return;
 	}
-	char *fullname = alloc_buf();
+	char *full_path = alloc_buf();
 	int len_path = strlen(dir);
-	strcpy(fullname, dir);
-	if (fullname[len_path - 1] != '/') {
-		fullname[len_path] = '/';
+	strcpy(full_path, dir);
+	if (full_path[len_path - 1] != '/') {
+		full_path[len_path] = '/';
 		len_path += 1;
 		// beware the string might not be zero terminated now
 	}
@@ -173,23 +173,23 @@ void list_dir(const char *dir, int want_full, int(*callback)(const char*, size_t
 			iprtf("name too long: %s\n", de->d_name);
 			continue;
 		}
-		strcpy(fullname + len_path, de->d_name);
+		strcpy(full_path + len_path, de->d_name);
 		struct stat s;
-		if (stat(fullname, &s) != 0) {
+		if (stat(full_path, &s) != 0) {
 			iprtf("weird stat failure, errno: %d\n", errno);
 			continue;
 		}
 		if ((s.st_mode & S_IFMT) == S_IFREG) {
-			if (callback(want_full ? fullname : de->d_name, s.st_size, p_cb_param) != 0) {
+			if (callback(full_path, de->d_name, s.st_size, p_cb_param) != 0) {
 				break;
 			}
 		} else if ((s.st_mode & S_IFMT) == S_IFDIR) {
 			// use INVALID_SIZE as is_dir
-			if (callback(want_full ? fullname : de->d_name, INVALID_SIZE, p_cb_param) != 0) {
+			if (callback(full_path, de->d_name, INVALID_SIZE, p_cb_param) != 0) {
 				break;
 			}
 		}
 	}
 	closedir(d);
-	free_buf(fullname);
+	free_buf(full_path);
 }
