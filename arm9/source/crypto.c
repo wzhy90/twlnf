@@ -114,16 +114,19 @@ static void dsi_aes_set_key(u32 *rk, const u32 *console_id, key_mode_t mode) {
 	aes_set_key_enc_128_be(rk, (u8*)key);
 }
 
-#ifdef _MSC_VER
-#define DTCM_BSS
-#endif
-
-void dsi_sha1(void *digest, const void *data, unsigned len) {
-	swiSHA1context_t ctx;
-	ctx.sha_block = 0;
-	swiSHA1Init(&ctx);
-	swiSHA1Update(&ctx, data, len);
-	swiSHA1Final(digest, &ctx);
+int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len) {
+	u8 digest[SHA1_LEN];
+	swiSHA1Calc(digest, data, len);
+	// return type of swiSHA1Verify() is declared void, so how exactly should we use it?
+	int ret = memcmp(digest, digest_verify, SHA1_LEN);
+	if (ret != 0) {
+		prt("  ");
+		print_bytes(digest_verify, SHA1_LEN);
+		prt("\n  ");
+		print_bytes(digest, SHA1_LEN);
+		prt("\n");
+	}
+	return ret;
 }
 
 static u32 nand_ctr_rk[RK_LEN];
@@ -145,8 +148,8 @@ void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
 	dsi_aes_set_key(nand_ctr_rk, console_id, is3DS ? NAND_3DS : NAND);
 	dsi_aes_set_key(es_rk, console_id, ES);
 
-	u32 digest[5];
-	dsi_sha1(digest, emmc_cid, 16);
+	u32 digest[SHA1_LEN / sizeof(u32)];
+	swiSHA1Calc(digest, emmc_cid, 16);
 	nand_ctr_iv[0] = digest[0];
 	nand_ctr_iv[1] = digest[1];
 	nand_ctr_iv[2] = digest[2];
@@ -222,7 +225,7 @@ int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
 			(unsigned)block_size, (unsigned)(buf_len - sizeof(es_block_footer_t)));
 		return 1;
 	}
-	// padd to multiple of 16
+	// padding to multiple of 16
 	u32 remainder = block_size & 0xf;
 	if (remainder != 0) {
 		zero(pad32);
@@ -264,6 +267,7 @@ int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
 			add_128_32(ctr32, 1);
 		}
 	}
+	// AES-CCM MAC final
 	xor_128(mac32, mac32, pad32);
 	if (mode == DECRYPT) {
 		if (memcmp(mac, ccm_mac, 16) == 0) {

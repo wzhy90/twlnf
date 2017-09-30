@@ -16,8 +16,6 @@
 #include "crypto.h"
 #include "tmd.h"
 
-#define SHA1_LEN 20
-
 #define RESERVE_FREE (5 * 1024 * 1024)
 
 term_t t0;
@@ -170,15 +168,6 @@ void menu_move(int move) {
 	}
 }
 
-void exit_with_prompt(int exit_code) {
-	prt("press A to exit...");
-	while (1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if (keysDown() & KEY_A) break;
-	}
-	exit(exit_code);
-}
 
 unsigned wait_keys(unsigned keys) {
 	while (1) {
@@ -188,6 +177,23 @@ unsigned wait_keys(unsigned keys) {
 		if (kd & keys) {
 			return kd;
 		}
+	}
+}
+
+void exit_with_prompt(int exit_code) {
+	prt("press A to exit...");
+	wait_keys(KEY_A);
+	exit(exit_code);
+}
+
+int wait_yes_no(const char* msg) {
+	prt(msg);
+	prt(" Yes(A)/No(B)\n");
+	if (wait_keys(KEY_A | KEY_B) == KEY_A) {
+		return 1;
+	} else {
+		prt("cancelled\n");
+		return 0;
 	}
 }
 
@@ -306,68 +312,13 @@ void menu_action_script(const char *name, const char *full_path) {
 		prt("insufficient NAND space\n");
 		return;
 	}
-	prt("execute? Yes(A)/No(B)\n");
-	if(wait_keys(KEY_A | KEY_B) & KEY_A) {
+	if(wait_yes_no("execute?")){
 		ret = scripting(full_path, 0, 0);
 		// TODO: some scripts might not induce writes
 		++executions;
 		iprtf("execution returned %d\n", ret);
 		// maybe we should prompt to restore a NAND image
-	} else {
-		prt("cancelled\n");
 	}
-}
-
-void menu_action_tmd(const char *name, const char *full_path) {
-	// TMD file
-	u8 *tmd_buf = malloc(sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t));
-	if (tmd_buf == 0) {
-		prt("failed to alloc memory for TMD\n");
-		return;
-	}
-	if (load_block_from_file(tmd_buf, full_path, 0,
-		sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t)) != 0) {
-		prt("failed to load TMD\n");
-		free(tmd_buf);
-		return;
-	}
-	tmd_header_v0_t *header = (tmd_header_v0_t*)tmd_buf;
-	u32 title_id[2];
-	GET_UINT32_BE(title_id[0], header->title_id, 4);
-	GET_UINT32_BE(title_id[1], header->title_id, 0);
-	if (title_id[1] != dsiware_title_id_h) {
-		iprtf("not a DSiWare title(%08lx)\n", title_id[1]);
-		free(tmd_buf);
-		return;
-	}
-	iprtf("Title ID: %08lx%08lx\n", title_id[1], title_id[0]);
-	if (header->num_content[0] != 0 || header->num_content[1] != 1) {
-		iprtf("num_content should to be 1(%02x%02x)\n",
-			header->num_content[0], header->num_content[1]);
-		free(tmd_buf);
-		return;
-	}
-	unsigned char sig_sha1[SHA1_LEN];
-	if (decrypt_cp07_signature(sig_sha1, header->sig) != 0) {
-		free(tmd_buf);
-		return;
-	}
-	unsigned char sha1[SHA1_LEN];
-#define SIG_OFFSET (sizeof(header->sig_type) + sizeof(header->sig) + sizeof(header->padding0))
-#define SIG_LEN (sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t) - SIG_OFFSET)
-	dsi_sha1(sha1, tmd_buf + SIG_OFFSET, SIG_LEN);
-	if (memcmp(sha1, sig_sha1, SHA1_LEN) != 0) {
-		prt("signature verification failed\n");
-		free(tmd_buf);
-		return;
-	} else {
-		prt("signature verified\n");
-	}
-#undef SIG_OFFSET
-#undef SIG_LEN
-	// tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
-	// TODO
-	free(tmd_buf);
 }
 
 static inline int name_is_tmd(const char *name, int len_name) {
@@ -382,17 +333,17 @@ void menu_action(const char *name) {
 		prt("max path length exceeded\n");
 		return;
 	}
-	char *full_path = alloc_buf();
-	strcpy(full_path, browse_path);
-	strcpy(full_path + len_path, name);
+	char *fullname = alloc_buf();
+	strcpy(fullname, browse_path);
+	strcpy(fullname + len_path, name);
 	if (len_name >= 4 && strcmp(name + len_name - 4, ".nfs") == 0) {
-		menu_action_script(name, full_path);
+		menu_action_script(name, fullname);
 	}else if(cert_ready && ticket_ready && name_is_tmd(name, len_name)){
-		menu_action_tmd(name, full_path);
+		install_tmd(fullname, browse_path, df(nand_root, 0) - RESERVE_FREE);
 	}else{
 		prt("don't know how to handle this file\n");
 	}
-	free_buf(full_path);
+	free_buf(fullname);
 }
 
 void menu() {
@@ -412,11 +363,8 @@ void menu() {
 		uint32 keys = keysDown();
 		int needs_redraw = 0;
 		if (keys & KEY_SELECT) {
-			prt("unmount and quit(A)? cancel(B)\n");
-			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
+			if (wait_yes_no("unmount and quit?")) {
 				break;
-			} else {
-				prt("cancelled\n");
 			}
 		} else if (keys & (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT)) {
 			if (keys & KEY_UP) {
@@ -525,7 +473,7 @@ int main(int argc, const char * const argv[]) {
 
 	if(heap_init() != 0 || scripting_init() != 0){
 		prt("failed to alloc memory\n");
-		return -1;
+		exit_with_prompt(-1);
 	}
 
 	u32 bat_reg = getBatteryLevel();
@@ -614,8 +562,7 @@ int main(int argc, const char * const argv[]) {
 		}
 		// TODO: also test against sha1
 		if ((ret = test_image_against_nand()) != 0) {
-			prt("you don't have a valid NAND backup, backup now? Yes(A)/No(B)\n");
-			if (wait_keys(KEY_A | KEY_B) & KEY_A) {
+			if (wait_yes_no("you don't have a valid NAND backup, backup now?")) {
 				if ((ret = backup()) != 0) {
 					prt("backup failed\n");
 					exit_with_prompt(ret);
@@ -631,7 +578,7 @@ int main(int argc, const char * const argv[]) {
 			return 0;
 		} else if(keys & KEY_A){
 			mode = MODE_IMAGE;
-		} else if (keys & KEY_X) {
+		} else if (keys == KEY_X) {
 			mode = MODE_DIRECT;
 			prt(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
 		}

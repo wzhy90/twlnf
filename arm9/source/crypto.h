@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common.h"
+#define SHA1_LEN 20
 
 #define AES_BLOCK_SIZE 16
 
@@ -15,7 +15,7 @@ typedef enum {
 	ES
 } key_mode_t;
 
-void dsi_sha1(void *digest, const void *data, unsigned len);
+int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len);
 
 void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS);
 

@@ -7,7 +7,7 @@
 #include "../term256/term256ext.h"
 
 // return 0 for valid NCSD header
-int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose) {
+int parse_ncsd(const uint8_t sector0[SECTOR_SIZE], int verbose) {
 	const ncsd_header_t * h = (ncsd_header_t *)sector0;
 	if (h->magic == 0x4453434e) {
 		if (verbose) {
@@ -71,7 +71,7 @@ const mbr_partition_t ptable_3DS[MBR_PARTITIONS] = {
 };
 
 // return 0 for valid MBR
-int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose) {
+int parse_mbr(const uint8_t sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	const mbr_t *m = (mbr_t*)sector0;
 	const mbr_partition_t *ref_ptable; // reference partition table
 	int ret = 0;

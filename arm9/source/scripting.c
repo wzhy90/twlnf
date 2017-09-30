@@ -7,13 +7,10 @@
 #include <sys/stat.h>
 #include "heap.h"
 #include "../term256/term256ext.h"
-#include "common.h"
 #include "utils.h"
 #include "scripting.h"
 
 extern const char nand_root[];
-
-extern swiSHA1context_t sha1ctx;
 
 #define FILE_BUF_LEN (128 << 10)
 static u8* file_buf = 0;
@@ -260,6 +257,7 @@ int sha1_file(void *digest, const char *name) {
 	if (f == 0) {
 		return -1;
 	}
+	swiSHA1context_t sha1ctx;
 	sha1ctx.sha_block = 0;
 	swiSHA1Init(&sha1ctx);
 	int size = 0;

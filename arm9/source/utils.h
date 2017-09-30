@@ -1,10 +1,9 @@
 
 #pragma once
 
-#include <nds.h>
-#include "common.h"
+#include <stdint.h>
 
-int hex2bytes(u8 *out, unsigned byte_len, const char *in);
+int hex2bytes(uint8_t *out, unsigned byte_len, const char *in);
 
 const char * to_mebi(size_t size);
 

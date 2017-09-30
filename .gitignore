@@ -2,6 +2,8 @@
 *.nds
 arm7/build
 arm9/build
+arm9/term256
+test scripts
 .*
 *.sln
 *.vcxproj*

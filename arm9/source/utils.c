@@ -5,7 +5,6 @@
 #include "../term256/term256ext.h"
 #include "utils.h"
 
-// globals shared by extern
 swiSHA1context_t sha1ctx;
 
 static inline int htoi(char a){
@@ -20,7 +19,7 @@ static inline int htoi(char a){
 	}
 }
 
-int hex2bytes(u8 *out, unsigned byte_len, const char *in){
+int hex2bytes(uint8_t *out, unsigned byte_len, const char *in){
 	if (strlen(in) < byte_len << 1){
 		iprtf("%s: invalid input length, expecting %u, got %u.\n",
 			__FUNCTION__, (unsigned)byte_len << 1, (unsigned)strlen(in));
@@ -132,6 +131,9 @@ int load_block_from_file(void *buf, const char *filename, unsigned offset, unsig
 	fclose(f);
 	return ret;
 }
+
+// you should have updated the sha1 context before calling save_sha1_file
+// example: save_file() in this file and backup() in nand.c
 
 int save_sha1_file(const char *filename) {
 	size_t len_fn = strlen(filename);

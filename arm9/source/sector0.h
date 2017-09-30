@@ -1,7 +1,7 @@
 #pragma once
 
+#include <stdint.h>
 #include <assert.h>
-#include "common.h"
 
 // https://3dbrew.org/wiki/NCSD#NCSD_header
 
@@ -17,34 +17,34 @@
 #endif
 
 typedef struct {
-	u32 offset;
-	u32 length;
+	uint32_t offset;
+	uint32_t length;
 } __PACKED ncsd_partition_t;
 
 typedef struct {
-	u8 signature[0x100];
-	u32 magic;
-	u32 size;
-	u32 media_id_l;
-	u32 media_id_h;
-	u8 fs_types[NCSD_PARTITIONS];
-	u8 crypt_types[NCSD_PARTITIONS];
+	uint8_t signature[0x100];
+	uint32_t magic;
+	uint32_t size;
+	uint32_t media_id_l;
+	uint32_t media_id_h;
+	uint8_t fs_types[NCSD_PARTITIONS];
+	uint8_t crypt_types[NCSD_PARTITIONS];
 	ncsd_partition_t partitions[NCSD_PARTITIONS];
 } __PACKED ncsd_header_t;
 
 typedef struct {
-	u8 head;
-	u8 sector;
-	u8 cylinder;
+	uint8_t head;
+	uint8_t sector;
+	uint8_t cylinder;
 } __PACKED chs_t;
 
 typedef struct {
-	u8 status;
+	uint8_t status;
 	chs_t chs_first;
-	u8 type;
+	uint8_t type;
 	chs_t chs_last;
-	u32 offset;
-	u32 length;
+	uint32_t offset;
+	uint32_t length;
 } __PACKED mbr_partition_t;
 
 #define MBR_PARTITIONS 4
@@ -52,10 +52,10 @@ typedef struct {
 #define MBR_BOOTSTRAP_SIZE 0x1be
 
 typedef struct {
-	u8 bootstrap[MBR_BOOTSTRAP_SIZE];
+	uint8_t bootstrap[MBR_BOOTSTRAP_SIZE];
 	mbr_partition_t partitions[MBR_PARTITIONS];
-	u8 boot_signature_0;
-	u8 boot_signature_1;
+	uint8_t boot_signature_0;
+	uint8_t boot_signature_1;
 } __PACKED mbr_t;
 
 #ifdef _MSC_VER
@@ -67,6 +67,6 @@ typedef struct {
 static_assert(sizeof(ncsd_header_t) == 0x160, "sizeof(ncsd_header_t) should equal 0x160");
 static_assert(sizeof(mbr_t) == SECTOR_SIZE, "sizeof(mbr_t) should equal 0x200");
 
-int parse_ncsd(const u8 sector0[SECTOR_SIZE], int verbose);
+int parse_ncsd(const uint8_t sector0[SECTOR_SIZE], int verbose);
 
-int parse_mbr(const u8 sector0[SECTOR_SIZE], int is3DS, int verbose);
+int parse_mbr(const uint8_t sector0[SECTOR_SIZE], int is3DS, int verbose);

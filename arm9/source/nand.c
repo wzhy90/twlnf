@@ -7,7 +7,6 @@
 #include <fat.h>
 #include "../mbedtls/aes.h"
 #include "../term256/term256ext.h"
-#include "common.h"
 #include "utils.h"
 #include "crypto.h"
 #include "sector0.h"
