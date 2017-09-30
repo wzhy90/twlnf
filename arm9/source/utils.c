@@ -50,11 +50,14 @@ const char *to_mebi(size_t size) {
 
 int save_file(const char *filename, const void *buffer, size_t size, int save_sha1) {
 	FILE *f = fopen(filename, "wb");
-	if (NULL==f) return -1;
+	if (f == 0) {
+		iprtf("failed to open %s to write\n", filename);
+		return -1;
+	}
 	size_t written = fwrite(buffer, 1, size, f);
 	fclose(f);
 	if (written != size) {
-		iprtf("Error saving %s\n", filename);
+		iprtf("error writting %s\n", filename);
 		return -2;
 	} else {
 		iprtf("saved %s\n", filename);
@@ -71,7 +74,7 @@ int save_file(const char *filename, const void *buffer, size_t size, int save_sh
 int load_file(void **pbuf, size_t *psize, const char *filename, int verify_sha1, int align) {
 	FILE *f = fopen(filename, "rb");
 	if (f == 0) {
-		iprtf("failed to open %s\n", filename);
+		iprtf("failed to open %s to read\n", filename);
 		return -1;
 	}
 	int ret;
@@ -160,6 +163,21 @@ void print_bytes(const void *buf, size_t len) {
 	const unsigned char *p = (const unsigned char *)buf;
 	for(size_t i = 0; i < len; ++i) {
 		iprtf("%02x", *p++);
+	}
+}
+
+// out must be big enough
+// can work in place
+void utf16_to_ascii(uint8_t *out, const uint16_t *in, unsigned len) {
+	const uint16_t *end = in + len;
+	while (in < end){
+		uint16_t c = *in++;
+		if (c == 0) {
+			*out = 0;
+			break;
+		} else if (c < 0x80) {
+			*out++ = (uint8_t)c;
+		}
 	}
 }
 

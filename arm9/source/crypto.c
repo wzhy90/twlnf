@@ -1,5 +1,4 @@
-
-#include <nds.h>
+#include <stdint.h>
 #include "../mbedtls/aes.h"
 #include "../term256/term256ext.h"
 #include "crypto.h"
@@ -11,23 +10,23 @@
 //		https://github.com/Jimmy-Z/bfCL/blob/master/dsi.h
 // ported back to 32 bit for ARM9
 
-static const u32 DSi_NAND_KEY_Y[4] =
+static const uint32_t DSi_NAND_KEY_Y[4] =
 	{0x0ab9dc76u, 0xbd4dc4d3u, 0x202ddd1du, 0xe1a00005u};
 
-static const u32 DSi_ES_KEY_Y[4] =
+static const uint32_t DSi_ES_KEY_Y[4] =
 	{0x8b5acce5u, 0x72c9d056u, 0xdce8179cu, 0xa9361239u};
 
-static const u32 DSi_KEY_MAGIC[4] =
+static const uint32_t DSi_KEY_MAGIC[4] =
 	{0x1a4f3e79u, 0x2a680f5fu, 0x29590258u, 0xfffefb4eu};
 
-static inline void xor_128(u32 *x, const u32 *a, const u32 *b){
+static inline void xor_128(uint32_t *x, const uint32_t *a, const uint32_t *b){
 	x[0] = a[0] ^ b[0];
 	x[1] = a[1] ^ b[1];
 	x[2] = a[2] ^ b[2];
 	x[3] = a[3] ^ b[3];
 }
 
-static inline void add_128(u32 *a, const u32 *b){
+static inline void add_128(uint32_t *a, const uint32_t *b){
 	unsigned c1, c2, c3; // carry
 	// round 1
 	a[3] += b[3];
@@ -54,7 +53,7 @@ static inline void add_128(u32 *a, const u32 *b){
 	a[3] += c3;
 }
 
-static inline void add_128_32(u32 *a, u32 b){
+static inline void add_128_32(uint32_t *a, uint32_t b){
 	a[0] += b;
 	if(a[0] < b){
 		a[1] += 1;
@@ -68,16 +67,16 @@ static inline void add_128_32(u32 *a, u32 b){
 }
 
 // Answer to life, universe and everything.
-static inline void rol42_128(u32 *a){
-	u32 t3 = a[3], t2 = a[2];
+static inline void rol42_128(uint32_t *a){
+	uint32_t t3 = a[3], t2 = a[2];
 	a[3] = (a[2] << 10) | (a[1] >> 22);
 	a[2] = (a[1] << 10) | (a[0] >> 22);
 	a[1] = (a[0] << 10) | (t3 >> 22);
 	a[0] = (t3 << 10) | (t2 >> 22);
 }
 
-static void dsi_aes_set_key(u32 *rk, const u32 *console_id, key_mode_t mode) {
-	u32 key[4];
+static void dsi_aes_set_key(uint32_t *rk, const uint32_t *console_id, key_mode_t mode) {
+	uint32_t key[4];
 	switch (mode) {
 	case NAND:
 		key[0] = console_id[0];
@@ -111,11 +110,11 @@ static void dsi_aes_set_key(u32 *rk, const u32 *console_id, key_mode_t mode) {
 	rol42_128(key);
 	// iprintf("AES KEY: ROL 42:\n");
 	// print_bytes(key, 16);
-	aes_set_key_enc_128_be(rk, (u8*)key);
+	aes_set_key_enc_128_be(rk, (uint8_t*)key);
 }
 
 int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len) {
-	u8 digest[SHA1_LEN];
+	uint8_t digest[SHA1_LEN];
 	swiSHA1Calc(digest, data, len);
 	// return type of swiSHA1Verify() is declared void, so how exactly should we use it?
 	int ret = memcmp(digest, digest_verify, SHA1_LEN);
@@ -129,26 +128,26 @@ int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len) {
 	return ret;
 }
 
-static u32 nand_ctr_rk[RK_LEN];
-static u32 es_rk[RK_LEN];
-static u32 nand_ctr_iv[4];
+static uint32_t nand_ctr_rk[RK_LEN];
+static uint32_t es_rk[RK_LEN];
+static uint32_t nand_ctr_iv[4];
 
 static int tables_generated = 0;
 
-void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
+void dsi_crypt_init(const uint8_t *console_id_be, const uint8_t *emmc_cid, int is3DS) {
 	if (tables_generated == 0) {
 		aes_gen_tables();
 		tables_generated = 1;
 	}
 	
-	u32 console_id[2];
+	uint32_t console_id[2];
 	GET_UINT32_BE(console_id[0], console_id_be, 4);
 	GET_UINT32_BE(console_id[1], console_id_be, 0);
 
 	dsi_aes_set_key(nand_ctr_rk, console_id, is3DS ? NAND_3DS : NAND);
 	dsi_aes_set_key(es_rk, console_id, ES);
 
-	u32 digest[SHA1_LEN / sizeof(u32)];
+	uint32_t digest[SHA1_LEN / sizeof(uint32_t)];
 	swiSHA1Calc(digest, emmc_cid, 16);
 	nand_ctr_iv[0] = digest[0];
 	nand_ctr_iv[1] = digest[1];
@@ -156,27 +155,27 @@ void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS) {
 	nand_ctr_iv[3] = digest[3];
 }
 
-static inline void aes_ctr(const u32 *rk, const u32 *ctr, u32 *in, u32 *out) {
-	u32 xor[4];
-	aes_encrypt_128_be(rk, (u8*)ctr, (u8*)xor);
+static inline void aes_ctr(const uint32_t *rk, const uint32_t *ctr, uint32_t *in, uint32_t *out) {
+	uint32_t xor[4];
+	aes_encrypt_128_be(rk, (uint8_t*)ctr, (uint8_t*)xor);
 	xor_128(out, in, xor);
 }
 
 // crypt one block, in/out must be aligned to 32 bit(restriction induced by xor_128)
 // offset as block offset, block as AES block
-void dsi_nand_crypt_1(u8* out, const u8* in, u32 offset) {
-	u32 ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
+void dsi_nand_crypt_1(uint8_t* out, const uint8_t* in, uint32_t offset) {
+	uint32_t ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
 	add_128_32(ctr, offset);
 	// iprintf("AES CTR:\n");
 	// print_bytes(buf, 16);
-	aes_ctr(nand_ctr_rk, ctr, (u32*)in, (u32*)out);
+	aes_ctr(nand_ctr_rk, ctr, (uint32_t*)in, (uint32_t*)out);
 }
 
-void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
-	u32 ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
+void dsi_nand_crypt(uint8_t* out, const uint8_t* in, uint32_t offset, unsigned count) {
+	uint32_t ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
 	add_128_32(ctr, offset);
 	for (unsigned i = 0; i < count; ++i) {
-		aes_ctr(nand_ctr_rk, ctr, (u32*)in, (u32*)out);
+		aes_ctr(nand_ctr_rk, ctr, (uint32_t*)in, (uint32_t*)out);
 		out += AES_BLOCK_SIZE;
 		in += AES_BLOCK_SIZE;
 		add_128_32(ctr, 1);
@@ -186,21 +185,21 @@ void dsi_nand_crypt(u8* out, const u8* in, u32 offset, unsigned count) {
 // http://problemkaputt.de/gbatek.htm#dsiesblockencryption
 // works in place, also must be aligned to 32 bit
 // why is it called ES?
-int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
+int dsi_es_block_crypt(uint8_t *buf, unsigned buf_len, crypt_mode_t mode) {
 	es_block_footer_t *footer;
 	footer = (es_block_footer_t*)(buf + buf_len - sizeof(es_block_footer_t));
 	// backup mac since it might be overwritten by padding
 	// and also nonce, it becomes garbage after decryption
-	u8 ccm_mac[AES_CCM_MAC_LEN];
-	u8 nonce[AES_CCM_NONCE_LEN];
+	uint8_t ccm_mac[AES_CCM_MAC_LEN];
+	uint8_t nonce[AES_CCM_NONCE_LEN];
 	memcpy(ccm_mac, footer->ccm_mac, AES_CCM_MAC_LEN);
 	memcpy(nonce, footer->nonce, AES_CCM_NONCE_LEN);
 
-	u32 ctr32[4], pad32[4], mac32[4];
+	uint32_t ctr32[4], pad32[4], mac32[4];
 // I'm too paranoid to use more stack variables
-#define ctr ((u8*)ctr32)
-#define pad ((u8*)pad32)
-#define mac ((u8*)mac32)
+#define ctr ((uint8_t*)ctr32)
+#define pad ((uint8_t*)pad32)
+#define mac ((uint8_t*)mac32)
 #define zero(a) static_assert(sizeof(a[0]) == 4, "invalid operand"); \
 	a[0] = 0; a[1] = 0; a[2] = 0; a[3] = 0
 	if (mode == DECRYPT) {
@@ -217,7 +216,7 @@ int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
 		iprtf("ES block footer offset 0x10 should be 0x3a, got 0x%02x\n", footer->fixed_3a);
 		return 1;
 	}
-	u32 block_size;
+	uint32_t block_size;
 	GET_UINT32_BE(block_size, footer->len32be, 0);
 	block_size &= 0xffffff;
 	if (block_size + sizeof(es_block_footer_t) != buf_len) {
@@ -226,7 +225,7 @@ int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
 		return 1;
 	}
 	// padding to multiple of 16
-	u32 remainder = block_size & 0xf;
+	uint32_t remainder = block_size & 0xf;
 	if (remainder != 0) {
 		zero(pad32);
 		if (mode == DECRYPT) {
@@ -254,16 +253,16 @@ int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode) {
 	// AES-CCM loop
 	if (mode == DECRYPT) {
 		for (unsigned i = 0; i < block_size; i += 16) {
-			aes_ctr(es_rk, ctr32, (u32*)(buf + i), (u32*)(buf + i));
+			aes_ctr(es_rk, ctr32, (uint32_t*)(buf + i), (uint32_t*)(buf + i));
 			add_128_32(ctr32, 1);
-			xor_128(mac32, mac32, (u32*)(buf + i));
+			xor_128(mac32, mac32, (uint32_t*)(buf + i));
 			aes_encrypt_128_be(es_rk, mac, mac);
 		}
 	} else {
 		for (unsigned i = 0; i < block_size; i += 16) {
-			xor_128(mac32, mac32, (u32*)(buf + i));
+			xor_128(mac32, mac32, (uint32_t*)(buf + i));
 			aes_encrypt_128_be(es_rk, mac, mac);
-			aes_ctr(es_rk, ctr32, (u32*)(buf + i), (u32*)(buf + i));
+			aes_ctr(es_rk, ctr32, (uint32_t*)(buf + i), (uint32_t*)(buf + i));
 			add_128_32(ctr32, 1);
 		}
 	}

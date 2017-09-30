@@ -31,8 +31,7 @@ const char nand_root[] = "NAND:/";
 
 const char dump_dir[] = "dump";
 
-int cert_ready;
-int ticket_ready;
+int cert_ready, ticket_ready, region_ready;
 
 #define Cls "\x1b[2J"
 #define Rst "\x1b[0m"
@@ -235,10 +234,6 @@ void walk_cb_sha1(const char *name, size_t size, void *p_param) {
 
 void walk_cb_dump(const char *name, size_t size, void *p_param) {
 	char *name_buf = (char *)p_param;
-	if (size == INVALID_SIZE) {
-		mkdir(name, S_IRWXU | S_IRWXG | S_IRWXO);
-		return;
-	}
 	const char *rname = name + sizeof(nand_root) - 1;
 	iprtf("%s", rname);
 	if (sizeof(dump_dir) + strlen(rname) > BUF_SIZE) {
@@ -248,11 +243,21 @@ void walk_cb_dump(const char *name, size_t size, void *p_param) {
 	strcpy(name_buf, dump_dir);
 	name_buf[sizeof(dump_dir) - 1] = '/';
 	strcpy(name_buf + sizeof(dump_dir), rname);
-	int ret = cp(name, name_buf);
-	if (ret != 0) {
-		iprtf(" failed(%d)\n", ret);
+	int ret;
+	if (size == INVALID_SIZE) {
+		ret = mkdir(name_buf, S_IRWXU | S_IRWXG | S_IRWXO);
+		if (ret != 0) {
+			iprtf(" failed to create dir(%d)\n", ret);
+		} else {
+			prt(" dir created\n");
+		}
 	} else {
-		prt(" dumped\n");
+		ret = cp(name, name_buf);
+		if (ret != 0) {
+			iprtf(" failed(%d)\n", ret);
+		} else {
+			prt(" dumped\n");
+		}
 	}
 }
 
@@ -338,7 +343,7 @@ void menu_action(const char *name) {
 	strcpy(fullname + len_path, name);
 	if (len_name >= 4 && strcmp(name + len_name - 4, ".nfs") == 0) {
 		menu_action_script(name, fullname);
-	}else if(cert_ready && ticket_ready && name_is_tmd(name, len_name)){
+	}else if(cert_ready && ticket_ready && region_ready && name_is_tmd(name, len_name)){
 		install_tmd(fullname, browse_path, df(nand_root, 0) - RESERVE_FREE);
 	}else{
 		prt("don't know how to handle this file\n");
@@ -605,7 +610,13 @@ int main(int argc, const char * const argv[]) {
 			"no template to forge fake ticket.\n");
 	}
 
-	if (!(cert_ready && ticket_ready)) {
+	region_ready = load_region() == 0;
+	if (!region_ready) {
+		prt("failed to load region, "
+			"not able to test app region compatibility\n");
+	}
+
+	if (!(cert_ready && ticket_ready && region_ready)) {
 		prt("TMD operations will be disabled.\n");
 	}
 

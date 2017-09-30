@@ -17,4 +17,6 @@ int save_sha1_file(const char *filename);
 
 void print_bytes(const void *buf, size_t len);
 
+void utf16_to_ascii(uint8_t *out, const uint16_t *in, unsigned len);
+
 size_t df(const char *path, int verbose);

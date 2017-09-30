@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <malloc.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include "../term256/term256ext.h"
 #include "../mbedtls/rsa.h"
 #include "../mbedtls/aes.h"
@@ -13,22 +15,30 @@
 
 extern const char nand_root[];
 
-const char cert_sys_fullname[] = "sys/cert.sys";
+const char cert_sys_path[] = "sys/cert.sys";
+
 const char cert_cp07_name[] = "CP00000007";
+
 const uint32_t dsiware_title_id_h = 0x00030004;
+
+const char hwinfo_s_path[] = "sys/HWINFO_S.dat";
 
 // used while looking for a ticket template
 const char ticket_dir_fmt[] = "%sticket/%08lx/";
 // used while reading app aside tmd on SD
 const char app_src_fmt[] = "%s%08lx.app";
 // dst full name generation
-const char ticket_fullname_fmt[] = "%sticket/%08lx/%08lx.tik";
-const char tmd_fullname_fmt[] = "%stitle/%08lx/%08lx/content/tmd";
-const char app_fullname_fmt[] = "%stitle/%08lx/%08lx/content/%08lx.app";
+const char ticket_dst_fmt[] = "%sticket/%08lx/%08lx.tik";
+const char tmd_dst_fmt[] = "%stitle/%08lx/%08lx/content/tmd";
+const char app_dst_fmt[] = "%stitle/%08lx/%08lx/content/%08lx.app";
+const char dir0_fmt[] = "%stitle/%08lx/%08lx";
+const char dir1_fmt[] = "%stitle/%08lx/%08lx/content";
 
 rsa_context_t rsa_cp07;
 
 uint8_t * ticket_template;
+
+uint8_t region;
 
 int setup_cp07_pubkey() {
 	cert_t *cert = malloc(sizeof(cert_t));
@@ -37,11 +47,11 @@ int setup_cp07_pubkey() {
 		return -1;
 	}
 	int ret;
-	char *cert_full_path = alloc_buf();
-	strcpy(cert_full_path, nand_root);
-	strcat(cert_full_path, cert_sys_fullname);
-	if (load_block_from_file(cert, cert_full_path, 0x700, sizeof(cert_t)) != 0) {
-		iprtf("failed to load cert from %s\n", cert_sys_fullname);
+	char *cert_sys_full_path = alloc_buf();
+	strcpy(cert_sys_full_path, nand_root);
+	strcat(cert_sys_full_path, cert_sys_path);
+	if (load_block_from_file(cert, cert_sys_full_path, 0x700, sizeof(cert_t)) != 0) {
+		iprtf("failed to load cert from %s\n", cert_sys_full_path);
 		ret = -1;
 	} else {
 		if (strncmp(cert->key_name, cert_cp07_name, sizeof(cert_cp07_name)) != 0) {
@@ -60,7 +70,7 @@ int setup_cp07_pubkey() {
 		}
 	}
 	free(cert);
-	free_buf(cert_full_path);
+	free_buf(cert_sys_full_path);
 	return ret;
 }
 
@@ -168,11 +178,74 @@ int setup_ticket_template() {
 	}
 }
 
+int load_region() {
+	// 1 byte region, 12 byte serial, 1 more for \0
+	int ret;
+	char *hwinfo_s_full_path = alloc_buf();
+	strcpy(hwinfo_s_full_path, nand_root);
+	strcat(hwinfo_s_full_path, hwinfo_s_path);
+	char region_and_serial[14];
+	if (load_block_from_file(region_and_serial, hwinfo_s_full_path, 0x90, 13) != 0) {
+		iprtf("failed to load region from %s\n", hwinfo_s_full_path);
+		ret = -1;
+	} else {
+		region = (uint8_t)region_and_serial[0];
+		prt("region: ");
+		switch (region) {
+			case 0: prt("J(0)\n"); break;
+			case 1: prt("U(1)\n"); break;
+			case 2: prt("E(2)\n"); break;
+			case 3: prt("A(3)\n"); break;
+			case 4: prt("C(4)\n"); break;
+			case 5: prt("K(5)\n"); break;
+			default: iprtf("unknown(%02x)\n", region); break;
+		}
+		region_and_serial[13] = 0;
+		iprtf("serial: %s\n", region_and_serial + 1);
+		ret = 0;
+	}
+	return ret;
+}
+
+/* cartridge header/title, also used in app
+http://problemkaputt.de/gbatek.htm#dscartridgeheader
+http://problemkaputt.de/gbatek.htm#dsicartridgeheader
+http://problemkaputt.de/gbatek.htm#dscartridgeicontitle
+*/
+static_assert(BUF_SIZE >= 0x100, "BUF_SIZE too small");
+int get_app_region(const char* name, uint32_t *p_region) {
+	// they use little endian now, what a surprise
+	if (load_block_from_file(p_region, name, 0x1b0, 4) != 0) {
+		prt("failed to read region flags from app\n");
+		return -1;
+	}
+	uint32_t icon_offset;
+	if (load_block_from_file(&icon_offset, name, 0x68, 4) != 0){
+		prt("failed to read icon offset from app\n");
+		return -1;
+	}
+	// read the English title
+	uint8_t *buf = (uint8_t*)alloc_buf();
+	if (load_block_from_file(buf, name, icon_offset + 0x340, 0x100) != 0) {
+		prt("failed to read title from app\n");
+		free_buf(buf);
+		return -1;
+	}
+	// this thing requirs is uint16_t aligned, luckily heap.c does that
+	utf16_to_ascii(buf, (uint16_t*)buf, 0x80);
+	// just to be sure
+	buf[0x80] = 0;
+	prt((char*)buf);
+	prt("\n");
+	free_buf(buf);
+	return 0;
+}
+
 #define TMD_SIZE (sizeof(tmd_header_v0_t) + sizeof(tmd_content_v0_t))
 
-int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst_fullname,
-	char *app_src_fullname, uint8_t *app_sha1, int *psize, char *app_dst_fullname,
-	uint8_t *ticket_buf, char *ticket_dst_fullname)
+int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst,
+	char *app_src, uint8_t *app_sha1, int *psize, char *app_dst,
+	uint8_t *ticket_buf, char *ticket_dst, char *dir0, char *dir1)
 {
 	tmd_header_v0_t *header = (tmd_header_v0_t*)tmd_buf;
 	uint32_t title_id[2];
@@ -203,13 +276,24 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst_fullna
 	} else {
 		prt("TMD signature verified\n");
 	}
-	// verify app
+	// verify app region
 	tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
 	uint32_t content_id;
 	GET_UINT32_BE(content_id, content->content_id, 0);
-	sprintf(app_src_fullname, app_src_fmt, tmd_dir, content_id);
-	prt(app_src_fullname);
-	if ((*psize = sha1_file(app_sha1, app_src_fullname)) == -1) {
+	sprintf(app_src, app_src_fmt, tmd_dir, content_id);
+	uint32_t region_flags;
+	if (get_app_region(app_src, &region_flags) != 0) {
+		prt("failed to get region\n");
+		return -1;
+	}
+	iprtf("region flags: %08lx\n", region_flags);
+	if (!((1 << region) & region_flags)) {
+		prt("incompatible region\n");
+		return -1;
+	}
+	// verify app sha1
+	prt(app_src);
+	if ((*psize = sha1_file(app_sha1, app_src)) == -1) {
 		prt(" <- couldn't open\n");
 		return -1;
 	}
@@ -221,24 +305,25 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir, char *tmd_dst_fullna
 	}
 	// forge ticket
 	memcpy(ticket_buf, ticket_template, TICKET_SIZE);
-	ticket_v0_t *ticket = (ticket_v0_t*)ticket_buf;
-	PUT_UINT32_BE(title_id[0], ticket->title_id, 4);
+	PUT_UINT32_BE(title_id[0], ((ticket_v0_t*)ticket_buf)->title_id, 4);
 	if (dsi_es_block_crypt(ticket_buf, TICKET_SIZE, ENCRYPT) != 0) {
 		prt("weird, failed to forge ticket\n");
 		return -1;
 	}
 	// generate paths
-	sprintf(ticket_dst_fullname, ticket_fullname_fmt, nand_root, title_id[1], title_id[0]);
-	sprintf(tmd_dst_fullname, tmd_fullname_fmt, nand_root, title_id[1], title_id[0]);
-	sprintf(app_dst_fullname, app_fullname_fmt, nand_root, title_id[1], title_id[0], content_id);
+	sprintf(ticket_dst, ticket_dst_fmt, nand_root, title_id[1], title_id[0]);
+	sprintf(tmd_dst, tmd_dst_fmt, nand_root, title_id[1], title_id[0]);
+	sprintf(app_dst, app_dst_fmt, nand_root, title_id[1], title_id[0], content_id);
+	sprintf(dir0, dir0_fmt, nand_root, title_id[1], title_id[0]);
+	sprintf(dir1, dir1_fmt, nand_root, title_id[1], title_id[0]);
 	return 0;
 }
 
 int wait_yes_no(const char *);
 
-void verify(const char *fullname, const uint8_t *digest_verify) {
+void verify(const char *name, const uint8_t *digest_verify) {
 	uint8_t digest[SHA1_LEN];
-	int ret = sha1_file(digest, fullname);
+	int ret = sha1_file(digest, name);
 	if (ret == -1) {
 		prt(" but failed to read for verification\n");
 	} else if (memcmp(digest, digest_verify, SHA1_LEN)) {
@@ -248,16 +333,12 @@ void verify(const char *fullname, const uint8_t *digest_verify) {
 	}
 }
 
-void save_and_verify(const char *fullname, uint8_t *buf, size_t len) {
-	prt(fullname);
-	int ret = save_file(fullname, buf, len, 0);
-	if (ret != 0) {
-		prt(" failed to write\n");
-	} else {
-		prt(" written to NAND");
+void save_and_verify(const char *name, uint8_t *buf, size_t len) {
+	int ret = save_file(name, buf, len, 0);
+	if (ret == 0) {
 		uint8_t digest[SHA1_LEN];
-		dsi_sha1_verify(digest, buf, len);
-		verify(fullname, digest);
+		swiSHA1Calc(digest, buf, len);
+		verify(name, digest);
 	}
 }
 
@@ -281,42 +362,50 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 		free(ticket_buf);
 		return;
 	}
-	char *tmd_dst_fullname = alloc_buf();
-	char *app_src_fullname = alloc_buf();
+	char *tmd_dst = alloc_buf();
+	char *app_src = alloc_buf();
 	uint8_t app_sha1[SHA1_LEN];
 	int size;
-	char *app_dst_fullname = alloc_buf();
-	char *ticket_dst_fullname = alloc_buf();
-	if (tmd_verify(tmd_buf, tmd_dir, tmd_dst_fullname,
-		app_src_fullname, app_sha1, &size, app_dst_fullname,
-		ticket_buf, ticket_dst_fullname) == 0) {
+	char *app_dst = alloc_buf();
+	char *ticket_dst = alloc_buf();
+	char * dir0 = alloc_buf();
+	char * dir1 = alloc_buf();
+	if (tmd_verify(tmd_buf, tmd_dir, tmd_dst,
+		app_src, app_sha1, &size, app_dst,
+		ticket_buf, ticket_dst, dir0, dir1) == 0) {
 		if (size > max_size) {
 			prt("insufficient NAND space\n");
 		} else if(wait_yes_no("install to NAND?")){
 			// write ticket
-			FILE *f = fopen(ticket_dst_fullname, "r");
+			FILE *f = fopen(ticket_dst, "r");
 			if (f != 0) {
 				fclose(f);
 				prt("ticket already exist, won't overwrite\n");
 			} else {
-				save_and_verify(ticket_dst_fullname, ticket_buf, TICKET_SIZE);
+				save_and_verify(ticket_dst, ticket_buf, TICKET_SIZE);
 			}
+			// iprtf("mkdir %s\n", dir0);
+			mkdir(dir0, S_IRWXU | S_IRWXG | S_IRWXO);
+			// iprtf("mkdir %s\n", dir1);
+			mkdir(dir1, S_IRWXU | S_IRWXG | S_IRWXO);
 			// write TMD
-			save_and_verify(ticket_dst_fullname, ticket_buf, TICKET_SIZE);
+			save_and_verify(tmd_dst, tmd_buf, TMD_SIZE);
 			// write app
-			prt(app_dst_fullname);
-			if (cp(app_src_fullname, app_dst_fullname) != 0) {
+			prt(app_dst);
+			if (cp(app_src, app_dst) != 0) {
 				prt(" failed to copy\n");
 			} else {
 				prt(" copied to NAND");
-				verify(app_dst_fullname, app_sha1);
+				verify(app_dst, app_sha1);
 			}
 		}
 	}
 	free(tmd_buf);
 	free(ticket_buf);
-	free_buf(tmd_dst_fullname);
-	free_buf(app_src_fullname);
-	free_buf(app_dst_fullname);
-	free_buf(ticket_dst_fullname);
+	free_buf(tmd_dst);
+	free_buf(app_src);
+	free_buf(app_dst);
+	free_buf(ticket_dst);
+	free_buf(dir0);
+	free_buf(dir1);
 }

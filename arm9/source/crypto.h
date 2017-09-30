@@ -15,12 +15,15 @@ typedef enum {
 	ES
 } key_mode_t;
 
+// don't want to include nds.h just for this
+void swiSHA1Calc(void *digest, const void *buf, size_t len);
+
 int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len);
 
-void dsi_crypt_init(const u8 *console_id_be, const u8 *emmc_cid, int is3DS);
+void dsi_crypt_init(const uint8_t *console_id_be, const uint8_t *emmc_cid, int is3DS);
 
-void dsi_nand_crypt_1(u8 *out, const u8* in, u32 offset);
+void dsi_nand_crypt_1(uint8_t *out, const uint8_t* in, u32 offset);
 
-void dsi_nand_crypt(u8 *out, const u8* in, u32 offset, unsigned count);
+void dsi_nand_crypt(uint8_t *out, const uint8_t* in, u32 offset, unsigned count);
 
-int dsi_es_block_crypt(u8 *buf, unsigned buf_len, crypt_mode_t mode);
+int dsi_es_block_crypt(uint8_t *buf, unsigned buf_len, crypt_mode_t mode);
