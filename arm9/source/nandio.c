@@ -32,7 +32,9 @@ bool nandio_is_inserted() {
 
 // len is guaranteed <= CRYPT_BUF_LEN
 static bool read_sectors(sec_t start, sec_t len, void *buffer) {
+	activity(COLOR_BRIGHT_GREEN);
 	if (nand_ReadSectors(start, len, crypt_buf)) {
+		activity(COLOR_GREEN);
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 		if (fat_sig_fix_offset &&
 			start == fat_sig_fix_offset
@@ -44,9 +46,11 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 			((u8*)buffer)[0x37] = 'A';
 			((u8*)buffer)[0x38] = 'T';
 		}
+		activity(-1);
 		return true;
 	} else {
 		prt("NANDIO: read error\n");
+		activity(-1);
 		return false;
 	}
 }
@@ -69,13 +73,17 @@ bool nandio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 }
 
 static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
+	activity(COLOR_RED);
 	dsi_nand_crypt(crypt_buf, buffer, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 	// if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
 	// if (fwrite(crypt_buf, SECTOR_SIZE, len, f) == len) {
+	activity(COLOR_BRIGHT_RED);
 	if(nand_WriteSectors(start, len, crypt_buf)){
+		activity(-1);
 		return true;
 	} else {
 		prt("NANDIO: write error\n");
+		activity(-1);
 		return false;
 	}
 }

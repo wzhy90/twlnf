@@ -49,7 +49,9 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 		prt("IMGIO: seek fail\n");
 		return false;
 	}
+	activity(COLOR_BRIGHT_GREEN);
 	if (fread(crypt_buf, SECTOR_SIZE, len, f) == len) {
+		activity(COLOR_GREEN);
 		dsi_nand_crypt(buffer, crypt_buf, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 		if (fat_sig_fix_offset &&
 			start == fat_sig_fix_offset
@@ -61,9 +63,11 @@ static bool read_sectors(sec_t start, sec_t len, void *buffer) {
 			((u8*)buffer)[0x37] = 'A';
 			((u8*)buffer)[0x38] = 'T';
 		}
+		activity(-1);
 		return true;
 	} else {
 		prt("IMGIO: read fail\n");
+		activity(-1);
 		return false;
 	}
 }
@@ -86,15 +90,20 @@ bool imgio_read_sectors(sec_t offset, sec_t len, void *buffer) {
 }
 
 static bool write_sectors(sec_t start, sec_t len, const void *buffer) {
+	activity(COLOR_RED);
 	dsi_nand_crypt(crypt_buf, buffer, start * SECTOR_SIZE / AES_BLOCK_SIZE, len * SECTOR_SIZE / AES_BLOCK_SIZE);
 	if (fseek(f, start * SECTOR_SIZE, SEEK_SET) != 0) {
 		prt("IMGIO: seek fail\n");
+		activity(-1);
 		return false;
 	}
+	activity(COLOR_BRIGHT_RED);
 	if (fwrite(crypt_buf, SECTOR_SIZE, len, f) == len) {
+		activity(-1);
 		return true;
 	} else {
 		prt("IMGIO: write fail\n");
+		activity(-1);
 		return false;
 	}
 }
