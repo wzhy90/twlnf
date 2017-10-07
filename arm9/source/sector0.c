@@ -91,8 +91,9 @@ int parse_mbr(const uint8_t sector0[SECTOR_SIZE], int is3DS, int verbose) {
 	} else {
 		ref_ptable = ptable_3DS;
 	}
-	if (memcmp(ref_ptable, sector0 + MBR_BOOTSTRAP_SIZE,
-		sizeof(mbr_partition_t) * MBR_PARTITIONS)) {
+	// only test the 1st partition now, we've seen variations on the 3rd partition
+	// and after all we only care about the 1st partition
+	if (memcmp(ref_ptable, m->partitions, sizeof(mbr_partition_t))) {
 		prt("invalid partition table\n");
 		ret = -2;
 	}
