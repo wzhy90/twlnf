@@ -78,6 +78,15 @@ int get_ids() {
 		prt("not running in DSi mode\n");
 		return -2;
 	}
+
+	fifoSendValue32(FIFO_USER_01, 1);
+	while (!fifoCheckValue32(FIFO_USER_01)) swiIntrWait(1, IRQ_FIFO_NOT_EMPTY);
+	int ret = fifoGetValue32(FIFO_USER_01);
+	if (ret) {
+		iprtf("sdmmc_nand_init() returned %d\n", ret);
+		return -3;
+	}
+
 	nand_size = nand_GetSize();
 	if (nand_size == 0) {
 		prt("can't access eMMC\n");
