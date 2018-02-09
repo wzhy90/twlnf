@@ -21,6 +21,19 @@ void imgio_set_fat_sig_fix(u32 offset) {
 	fat_sig_fix_offset = offset;
 }
 
+// provide a similar interface to nand_ReadSectors for imgio
+bool imgio_read_raw_sectors(sec_t sector, sec_t numSectors, void *buffer) {
+	if (fseek(f, sector * SECTOR_SIZE, SEEK_SET) != 0) {
+		prt("IMGIO: seek fail\n");
+		return false;
+	}
+	if (fread(buffer, SECTOR_SIZE, numSectors, f) != numSectors) {
+		prt("IMGIO: read fail\n");
+		return false;
+	}
+	return true;
+}
+
 bool imgio_startup() {
 	if (crypt_buf == 0) {
 		crypt_buf = (u8*)memalign(32, SECTOR_SIZE * CRYPT_BUF_LEN);

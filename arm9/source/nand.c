@@ -18,6 +18,10 @@ extern swiSHA1context_t sha1ctx;
 
 const char nand_img_name[] = "nand.bin";
 
+int is3DS;
+
+bool (*read_raw_sectors)(sec_t, sec_t, void*) = 0;
+
 static u32 sector_buf32[SECTOR_SIZE/sizeof(u32)];
 static u8 *sector_buf = (u8*)sector_buf32;
 
@@ -229,7 +233,6 @@ int mount(int direct) {
 			return -1;
 		}
 	}
-	int is3DS;
 	test_sector0(&is3DS);
 	mbr_t *mbr = (mbr_t*)sector_buf;
 	int mnt_ret;
@@ -245,6 +248,11 @@ int mount(int direct) {
 		return -2;
 	} else {
 		iprtf("%s mounted\n", direct ? nand_vol_name : nand_img_name);
+	}
+	if (direct) {
+		read_raw_sectors = nand_ReadSectors;
+	} else {
+		read_raw_sectors = imgio_read_raw_sectors;
 	}
 	///* // the volume label is all white space?
 	char vol_label[32];

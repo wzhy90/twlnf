@@ -8,6 +8,7 @@
 #include "heap.h"
 #include "../term256/term256ext.h"
 #include "utils.h"
+#include "stage2.h"
 #include "scripting.h"
 
 extern const char nand_root[];
@@ -79,19 +80,25 @@ static void convert_backslash(char *p) {
 static const char * const cmd_strs[] = {
 	"file_exist",
 	"dir_exist",
-	"rm"
+	"rm",
+	"dump_stage2_arm9",
+	"dump_stage2_arm7"
 };
 
 enum {
 	CMD_FILE_EXIST,
 	CMD_DIR_EXIST,
-	CMD_RM
+	CMD_RM,
+	CMD_DUMP_STAGE2_ARM9,
+	CMD_DUMP_STAGE2_ARM7
 };
 
 // check commands runs in dry run
 int cmd_is_chk[] = {
 	1,
 	1,
+	0,
+	0,
 	0
 };
 
@@ -245,6 +252,12 @@ static int execute_cmd(const char * line, unsigned len, int dry_run) {
 			return cmd_exist(arg, S_IFDIR);
 		case CMD_RM:
 			cmd_rm(arg);
+			return NO_ERR;
+		case CMD_DUMP_STAGE2_ARM9:
+			dump_stage2(STAGE2_ARM9, arg);
+			return NO_ERR;
+		case CMD_DUMP_STAGE2_ARM7:
+			dump_stage2(STAGE2_ARM7, arg);
 			return NO_ERR;
 		}
 	}
