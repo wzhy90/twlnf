@@ -16,6 +16,9 @@ static const uint32_t DSi_NAND_KEY_Y[4] =
 static const uint32_t DSi_ES_KEY_Y[4] =
 	{0x8b5acce5u, 0x72c9d056u, 0xdce8179cu, 0xa9361239u};
 
+static const uint32_t DSi_BOOT2_KEY[4] =
+	{0x8080ee98u, 0xf6b46c00u, 0x626ec23au, 0xad34ecf9u};
+
 static const uint32_t DSi_KEY_MAGIC[4] =
 	{0x1a4f3e79u, 0x2a680f5fu, 0x29590258u, 0xfffefb4eu};
 
@@ -128,9 +131,10 @@ int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len) {
 	return ret;
 }
 
-static uint32_t nand_ctr_rk[RK_LEN];
-static uint32_t es_rk[RK_LEN];
+static uint32_t nand_rk[RK_LEN];
 static uint32_t nand_ctr_iv[4];
+static uint32_t es_rk[RK_LEN];
+static uint32_t boot2_rk[RK_LEN];
 
 static int tables_generated = 0;
 
@@ -144,8 +148,10 @@ void dsi_crypt_init(const uint8_t *console_id_be, const uint8_t *emmc_cid, int i
 	GET_UINT32_BE(console_id[0], console_id_be, 4);
 	GET_UINT32_BE(console_id[1], console_id_be, 0);
 
-	dsi_aes_set_key(nand_ctr_rk, console_id, is3DS ? NAND_3DS : NAND);
+	dsi_aes_set_key(nand_rk, console_id, is3DS ? NAND_3DS : NAND);
 	dsi_aes_set_key(es_rk, console_id, ES);
+
+	aes_set_key_enc_128_be(boot2_rk, (uint8_t*)DSi_BOOT2_KEY);
 
 	uint32_t digest[SHA1_LEN / sizeof(uint32_t)];
 	swiSHA1Calc(digest, emmc_cid, 16);
@@ -168,17 +174,35 @@ void dsi_nand_crypt_1(uint8_t* out, const uint8_t* in, uint32_t offset) {
 	add_128_32(ctr, offset);
 	// iprintf("AES CTR:\n");
 	// print_bytes(buf, 16);
-	aes_ctr(nand_ctr_rk, ctr, (uint32_t*)in, (uint32_t*)out);
+	aes_ctr(nand_rk, ctr, (uint32_t*)in, (uint32_t*)out);
 }
 
 void dsi_nand_crypt(uint8_t* out, const uint8_t* in, uint32_t offset, unsigned count) {
 	uint32_t ctr[4] = { nand_ctr_iv[0], nand_ctr_iv[1], nand_ctr_iv[2], nand_ctr_iv[3] };
 	add_128_32(ctr, offset);
 	for (unsigned i = 0; i < count; ++i) {
-		aes_ctr(nand_ctr_rk, ctr, (uint32_t*)in, (uint32_t*)out);
+		aes_ctr(nand_rk, ctr, (uint32_t*)in, (uint32_t*)out);
 		out += AES_BLOCK_SIZE;
 		in += AES_BLOCK_SIZE;
 		add_128_32(ctr, 1);
+	}
+}
+	
+static uint32_t boot2_ctr[4];
+
+void dsi_boot2_crypt_set_ctr(uint32_t size_r) {
+	boot2_ctr[0] = size_r;
+	boot2_ctr[1] = -size_r;
+	boot2_ctr[2] = ~size_r;
+	boot2_ctr[3] = 0;
+}
+
+void dsi_boot2_crypt(uint8_t* out, const uint8_t* in, unsigned count) {
+	for (unsigned i = 0; i < count; ++i) {
+		aes_ctr(boot2_rk, boot2_ctr, (uint32_t*)in, (uint32_t*)out);
+		out += AES_BLOCK_SIZE;
+		in += AES_BLOCK_SIZE;
+		add_128_32(boot2_ctr, 1);
 	}
 }
 

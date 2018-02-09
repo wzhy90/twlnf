@@ -27,3 +27,7 @@ void dsi_nand_crypt_1(uint8_t *out, const uint8_t* in, u32 offset);
 void dsi_nand_crypt(uint8_t *out, const uint8_t* in, u32 offset, unsigned count);
 
 int dsi_es_block_crypt(uint8_t *buf, unsigned buf_len, crypt_mode_t mode);
+
+void dsi_boot2_crypt_set_ctr(uint32_t size_r);
+
+void dsi_boot2_crypt(uint8_t* out, const uint8_t* in, unsigned count);
