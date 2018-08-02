@@ -26,8 +26,8 @@ extern const u32 dsiware_title_id_h;
 
 unsigned executions = 0;
 
-const char nand_vol_name[] = "NAND";
-const char nand_root[] = "NAND:/";
+const char nand_vol_name[] = "SD";
+const char nand_root[] = "sd:/";
 
 const char dump_dir[] = "dump";
 
@@ -38,6 +38,7 @@ int cert_ready, ticket_ready, region_ready;
 #define BlkOnWht "\x1b[30;47m"
 #define CyanOnBlk "\x1b[32;1;40m"
 #define Red "\x1b[31;1m"
+#define Cyan "\x1b[32;1m"
 #define BlkOnRed "\x1b[31;1;7;30m"
 
 #define FILE_LIST_LEN 0x100
@@ -49,7 +50,7 @@ typedef struct {
 }file_list_item_t;
 
 char *browse_path;
-const char footer[] = "(A)select (B)up (START)menu (SELECT)quit";
+const char footer[] = "(A)select (B)up (SELECT)quit";
 static_assert(sizeof(footer) - 1 <= TERM_COLS, "footer too long");
 file_list_item_t *file_list;
 int file_list_len;
@@ -187,6 +188,7 @@ void exit_with_prompt(int exit_code) {
 
 int wait_yes_no(const char* msg) {
 	prt(msg);
+	prt(Rst);
 	prt(" Yes(A)/No(B)\n");
 	if (wait_keys(KEY_A | KEY_B) == KEY_A) {
 		return 1;
@@ -314,7 +316,7 @@ void menu_action_script(const char *name, const char *full_path) {
 		return;
 	}
 	if (df(nand_root, 0) < size + RESERVE_FREE) {
-		prt("insufficient NAND space\n");
+		prt("insufficient SD space\n");
 		return;
 	}
 	if(wait_yes_no("execute?")){
@@ -368,7 +370,7 @@ void menu() {
 		uint32 keys = keysDown();
 		int needs_redraw = 0;
 		if (keys & KEY_SELECT) {
-			if (wait_yes_no("unmount and quit?")) {
+			if (wait_yes_no("Quit?")) {
 				break;
 			}
 		} else if (keys & (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT)) {
@@ -392,33 +394,6 @@ void menu() {
 			} else if(fli->size > 0){
 				menu_action(fli->name);
 			}
-		} else if ((keys & KEY_START)) {
-			prt("\t(A) list NAND directories\n"
-				"\t(X) list NAND files\n"
-				"\t(Y) sha1 NAND files\n"
-				"\t(R) dump NAND files\n"
-				"\t(B) cancel\n");
-			unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X | KEY_Y | KEY_R);
-			if (keys & KEY_A) {
-				FILE * f = fopen("nand_dirs.lst", "w");
-				iprtf("walk returned %d\n", walk(nand_root, walk_cb_lst_dir, f));
-				fclose(f);
-			} else if (keys & KEY_X) {
-				FILE * f = fopen("nand_files.lst", "w");
-				iprtf("walk returned %d\n", walk(nand_root, walk_cb_lst_file, f));
-				fclose(f);
-			} else if (keys & KEY_Y) {
-				FILE * f = fopen("nand_files.sha1", "w");
-				iprtf("walk returned %d\n", walk(nand_root, walk_cb_sha1, f));
-				fclose(f);
-			} else if (keys & KEY_R) {
-				mkdir(dump_dir, S_IRWXU | S_IRWXG | S_IRWXO);
-				char *name_buf = alloc_buf();
-				iprtf("walk returned %d\n", walk(nand_root, walk_cb_dump, name_buf));
-				free_buf(name_buf);
-			} else {
-				prt("cancelled\n");
-			}
 		}
 		if (needs_redraw) {
 			draw_file_list();
@@ -432,30 +407,6 @@ void set_scroll_callback(int x, int y, void *param) {
 	bgSetScroll(*(int*)param, x, y);
 	bgUpdate();
 }
-
-/* different modes:
-	image mode, mount a valid native image
-		if such image doesn't exist, prompt to create one
-		test against NAND sector 0 and native IDs
-		(TODO) update nand.sha1 upon quiting
-	(DANGEROUS) direct mode, mounts real NAND
-		(TODO) if any writes failed, prompt to restore a image as rescue
-			so a valid native NAND image is required to enter direct mode
-				valid: contains valid no$gba footer which can decrypt itself
-				native: IDs identical to running hardware
-	(DEBUG) image test mode, mount a valid image
-		but not necessarily native
-		this is for testing a foreign NAND image
-	(DEBUG) direct test mode
-		doesn't require a NAND image as rescue
-		this is for testing on a B9S 3DS in TWL mode
-*/
-enum {
-	MODE_IMAGE,
-	MODE_DIRECT,
-	MODE_IMAGE_TEST,
-	MODE_DIRECT_TEST
-};
 
 int main(int argc, const char * const argv[]) {
 	defaultExceptionHandler();
@@ -487,28 +438,6 @@ int main(int argc, const char * const argv[]) {
 		exit_with_prompt(0);
 	}
 
-	int mode = MODE_IMAGE;
-
-	if (argc > 1) {
-		if (argc == 2 && !strcmp(argv[1], "image-test")) {
-			prt("image test mode\n");
-			mode = MODE_IMAGE_TEST;
-		} else if (argc == 2 && !strcmp(argv[1], "direct-test")) {
-			prt("direct test mode\n");
-			mode = MODE_DIRECT_TEST;
-		} else if (argc == 5 && !strcmp(argv[1], "aes-test")) {
-			prt("AES test default\n");
-			aes_test(atoi(argv[2]), argv[3], argv[4]);
-			setCpuClock(false);
-			prt("AES test clock low\n");
-			aes_test(atoi(argv[2]), argv[3], argv[4]);
-			setCpuClock(true);
-			prt("AES test clock high\n");
-			aes_test(atoi(argv[2]), argv[3], argv[4]);
-			exit_with_prompt(0);
-		}
-	}
-
 	int ret;
 
 	prt("FAT init...");
@@ -522,74 +451,22 @@ int main(int argc, const char * const argv[]) {
 		iprtf("\x1b[3D succeed, %lu\xe6s\n", td);
 	}
 
-	if (mode == MODE_IMAGE_TEST) {
-		if ((ret = test_image_against_footer()) != 0) {
-			exit_with_prompt(ret);
-		}
-		if ((ret = mount(0)) != 0) {
-			exit_with_prompt(ret);
-		}
-	}else if(mode == MODE_DIRECT_TEST){
-		if ((ret = get_ids()) != 0) {
-			exit_with_prompt(ret);
-		}
-		int is3DS;
-		ret = test_ids_against_nand(&is3DS);
-		if (!is3DS) {
-			prt("you should NOT use direct test mode in DSi\n");
-			exit_with_prompt(0);
-		}
-		if (ret != 0) {
-			prt("most likely Console ID is wrong\n");
-			exit_with_prompt(ret);
-		}
-		prt(Red "are you SURE to start direct test mode(A)? quit(B)?\n");
-		if (wait_keys(KEY_A | KEY_B) & KEY_A) {
-			if ((ret = mount(1)) != 0) {
-				exit_with_prompt(ret);
-			}
-		} else {
-			return 0;
-		}
-	}else{
-		if ((ret = get_ids()) != 0) {
-			exit_with_prompt(ret);
-		}
-		int is3DS;
-		ret = test_ids_against_nand(&is3DS);
-		if (is3DS) {
-			prt("no point to use this on 3DS\n");
-			exit_with_prompt(0);
-		}
-		if (ret != 0) {
-			prt("most likely Console ID is wrong\n");
-			exit_with_prompt(ret);
-		}
-		// TODO: also test against sha1
-		if ((ret = test_image_against_nand()) != 0) {
-			if (wait_yes_no("you don't have a valid NAND backup, backup now?")) {
-				if ((ret = backup()) != 0) {
-					prt("backup failed\n");
-					exit_with_prompt(ret);
-				}
-			} else {
-				exit_with_prompt(-1);
-			}
-		}
-		// either way, we should have a valid native NAND image by now
-		prt("mount image (A)? quit(B)?\n");
-		unsigned keys = wait_keys(KEY_A | KEY_B | KEY_X);
-		if (keys & KEY_B) {
-			return 0;
-		} else if(keys & KEY_A){
-			mode = MODE_IMAGE;
-		} else if (keys == KEY_X) {
-			mode = MODE_DIRECT;
-			prt(Red "you are mounting NAND R/W DIRECTLY, EXERCISE EXTREME CAUTION\n");
-		}
-		if((ret = mount(mode ==  MODE_DIRECT ? 1 : 0)) != 0) {
-			exit_with_prompt(ret);
-		}
+	if ((ret = get_ids()) != 0) {
+		exit_with_prompt(ret);
+	}
+	int is3DS;
+	ret = test_ids_against_nand(&is3DS);
+	if (is3DS) {
+		prt("no point to use this on 3DS\n");
+		exit_with_prompt(0);
+	}
+	if (ret != 0) {
+		prt("most likely Console ID is wrong\n");
+		exit_with_prompt(ret);
+	}
+
+	if((ret = mount(0)) != 0) {
+		exit_with_prompt(ret);
 	}
 
 	df(nand_root, 1);
@@ -622,8 +499,5 @@ int main(int argc, const char * const argv[]) {
 
 	menu();
 
-	fatUnmount(nand_vol_name);
-	// TODO: in image mode, update sha1 if writes > 0
-	// TODO: in direct mode, restore NAND image if anything bad happens
 	return 0;
 }

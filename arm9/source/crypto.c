@@ -121,13 +121,6 @@ int dsi_sha1_verify(const void *digest_verify, const void *data, unsigned len) {
 	swiSHA1Calc(digest, data, len);
 	// return type of swiSHA1Verify() is declared void, so how exactly should we use it?
 	int ret = memcmp(digest, digest_verify, SHA1_LEN);
-	if (ret != 0) {
-		prt("  ");
-		print_bytes(digest_verify, SHA1_LEN);
-		prt("\n  ");
-		print_bytes(digest, SHA1_LEN);
-		prt("\n");
-	}
 	return ret;
 }
 

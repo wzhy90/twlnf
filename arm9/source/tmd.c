@@ -13,6 +13,10 @@
 #include "crypto.h"
 #include "scripting.h"
 
+#define Rst "\x1b[0m"
+#define Red "\x1b[31;1m"
+#define Cyan "\x1b[32;1m"
+
 extern const char nand_root[];
 
 const char cert_sys_path[] = "sys/cert.sys";
@@ -89,14 +93,7 @@ int decrypt_cp07_signature(uint8_t *out, const uint8_t *in) {
 		ret = -2;
 	} else if (sig[0] != 0 || sig[1] != 1 || sig[2] != 0xff
 		|| sig[RSA_2048_LEN - SHA1_LEN - 1] != SHA1_LEN) {
-		prt("invalid signature, first 16 bytes:\n\t");
-		print_bytes(sig, 16);
-		prt("\nlast 32 bytes:\n\t");
-		print_bytes(sig + RSA_2048_LEN - 32, 16);
-		prt("\n\t");
-		print_bytes(sig + RSA_2048_LEN - 16, 16);
-		prt("\n");
-		ret = -3;
+		ret = -0;
 	} else {
 		memcpy(out, sig + RSA_2048_LEN - SHA1_LEN, SHA1_LEN);
 		ret = 0;
@@ -253,7 +250,7 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir,
 	GET_UINT32_BE(title_id[0], header->title_id, 4);
 	GET_UINT32_BE(title_id[1], header->title_id, 0);
 	if (title_id[1] != dsiware_title_id_h) {
-		iprtf("not a DSiWare title(%08lx)\n", title_id[1]);
+		iprtf(Red "not a DSiWare title(%08lx)\n", title_id[1]);
 		return -1;
 	}
 	iprtf("Title ID: %08lx/%c%c%c%c\n", title_id[1],
@@ -272,10 +269,12 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir,
 	if (dsi_sha1_verify(app_sha1, tmd_buf + SIG_OFFSET, SIG_LEN) != 0) {
 #undef SIG_OFFSET
 #undef SIG_LEN
-		prt("TMD signature verification failed\n");
-		return -1;
+		prt(Red "TMD signature verification failed,\n");
+		prt(Red "Force continue installation on SDNand\n");
+		prt(Rst);
 	} else {
-		prt("TMD signature verified\n");
+		prt(Cyan "TMD signature verified\n");
+		prt(Rst);
 	}
 	// verify app region
 	tmd_content_v0_t *content = (tmd_content_v0_t*)(tmd_buf + sizeof(tmd_header_v0_t));
@@ -283,13 +282,14 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir,
 	sprintf(app_src, app_src_fmt, tmd_dir, *content_id);
 	uint32_t region_flags;
 	if (get_app_region(app_src, &region_flags) != 0) {
-		prt("failed to get region\n");
+		prt(Red "failed to get region\n");
+		prt(Rst);
 		return -1;
 	}
 	iprtf("region flags: %08lx\n", region_flags);
 	if (!((1 << region) & region_flags)) {
-		prt("incompatible region\n");
-		return -1;
+		prt(Red "Incompatible region\n");
+		prt(Rst);
 	}
 	// verify app sha1
 	// TODO: verify app signature and title id, allow TMD<->app sha1 mismatch
@@ -299,10 +299,11 @@ int tmd_verify(const uint8_t *tmd_buf, const char *tmd_dir,
 		return -1;
 	}
 	if (memcmp(content->sha1, app_sha1, SHA1_LEN) != 0) {
-		prt(" SHA1 doesn't match\n");
-		return -1;
+		prt(Red " SHA1 doesn't match\n");
+		prt(Rst);
 	} else {
-		prt(" SHA1 verified\n");
+		prt(Cyan " SHA1 verified\n");
+		prt(Rst);
 	}
 	// TODO: verify data/*.sav size, I suppose this is not critical
 	// forge ticket
@@ -321,9 +322,11 @@ void verify(const char *name, const uint8_t *digest_verify) {
 	uint8_t digest[SHA1_LEN];
 	int ret = sha1_file(digest, name);
 	if (ret == -1) {
-		prt(" but failed to read for verification\n");
+		prt(Red " but failed to read for verification\n");
+		prt(Rst);
 	} else if (memcmp(digest, digest_verify, SHA1_LEN)) {
-		prt(" but verification failed\n");
+		prt(Red " but verification failed\n");
+		prt(Rst);
 	} else {
 		prt(" and verified\n");
 	}
@@ -343,9 +346,11 @@ int data_cp(const char *full_path, const char *name, size_t size, void *cb_param
 	sprintf(dst, "%s/%s", (char*)cb_param, name);
 	prt(dst);
 	if (cp(full_path, dst) != 0) {
-		prt(" failed to copy\n");
+		prt(Red " failed to copy\n");
+		prt(Rst);
 	} else {
-		prt(" copied to NAND");
+		prt(Cyan " copied to SDNAND");
+		prt(Rst);
 		uint8_t digest[SHA1_LEN];
 		sha1_file(digest, full_path);
 		verify(dst, digest);
@@ -387,8 +392,8 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 	if (tmd_verify(tmd_buf, tmd_dir, title_id, &content_id,
 		app_src, app_sha1, &size, ticket_buf) == 0) {
 		if (size > max_size) {
-			prt("insufficient NAND space\n");
-		} else if(wait_yes_no("install to NAND?")){
+			prt("insufficient SDNAND space\n");
+		} else if(wait_yes_no(Cyan "Install to SDNAND?")){
 			// generate paths
 			sprintf(ticket_dst, ticket_dst_fmt, nand_root, title_id[1], title_id[0]);
 			sprintf(tmd_dst, tmd_dst_fmt, nand_root, title_id[1], title_id[0]);
@@ -413,16 +418,19 @@ void install_tmd(const char *tmd_fullname, const char *tmd_dir, int max_size) {
 			// copy app
 			prt(app_dst);
 			if (cp(app_src, app_dst) != 0) {
-				prt(" failed to copy\n");
+				prt(Red " failed to copy\n");
+				prt(Rst);
 			} else {
-				prt(" copied to NAND");
+				prt(Cyan " copied to SDNAND");
+				prt(Rst);
 				verify(app_dst, app_sha1);
 			}
 			// copy data
 			// TODO: only copy .sav files indicated by tmd/app header
 			sprintf(dir_data, "%s../data", tmd_dir);
 			list_dir(dir_data, data_cp, dir);
-			prt("all done\n");
+			prt(Cyan "all done\n");
+			prt(Rst);
 		}
 	}
 	free(tmd_buf);

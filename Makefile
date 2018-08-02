@@ -7,10 +7,10 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
-export TARGET	:=	twlnf
+export TARGET	:=	twlnf_sd
 export TOPDIR	:=	$(CURDIR)
 
-export VERSION	:=	0.3.1a
+export VERSION	:=	0.3.1b
 
 .PHONY: arm7/$(TARGET).elf arm9/$(TARGET).elf
 

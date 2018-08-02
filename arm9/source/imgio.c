@@ -41,13 +41,7 @@ bool imgio_startup() {
 			prt("imgio: failed to alloc buffer\n");
 		}
 	}
-	if (f == 0) {
-		f = fopen(nand_img_name, "r+");
-		if (f == 0) {
-			prt("imgio: failed to open image\n");
-		}
-	}
-	return crypt_buf != 0 && f != 0;
+	return crypt_buf != 0;
 }
 
 bool imgio_is_inserted() {
